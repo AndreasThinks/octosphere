@@ -24,6 +24,12 @@ def task_sync_user(orcid: str) -> None:
     if not user or not user.get("active"):
         return
     
+    # Need octopus_user_id to fetch publications
+    octopus_user_id = user.get("octopus_user_id")
+    if not octopus_user_id:
+        print(f"No octopus_user_id for {orcid}, skipping sync")
+        return
+    
     try:
         password = decrypt_password(user["encrypted_app_password"])
         
@@ -35,7 +41,8 @@ def task_sync_user(orcid: str) -> None:
         atproto = AtprotoClient(os.getenv("ATPROTO_PDS_URL", "https://bsky.social"))
         auth = atproto.create_session(user["bsky_handle"], password)
         
-        results = sync_publications(octopus, atproto, auth, orcid)
+        # Use octopus_user_id (internal ID) not orcid
+        results = sync_publications(octopus, atproto, auth, octopus_user_id)
         
         # Record synced publications
         for r in results:

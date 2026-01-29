@@ -92,3 +92,14 @@ class TestOctopusClient:
         url = client.publication_url("pub-123", "ver-456")
         
         assert url == "https://www.octopus.ac/publications/pub-123/versions/ver-456"
+
+    def test_extract_user_id_from_url(self):
+        """Test extracting internal user ID from author page URL."""
+        url = "https://www.octopus.ac/authors/cl5smny4a000009ieqml45bhz"
+        result = OctopusClient.extract_user_id_from_url(url)
+        assert result == "cl5smny4a000009ieqml45bhz"
+
+    def test_extract_user_id_from_url_invalid(self):
+        """Test extract returns None for invalid URLs."""
+        assert OctopusClient.extract_user_id_from_url("https://example.com") is None
+        assert OctopusClient.extract_user_id_from_url("not-a-url") is None

@@ -162,9 +162,19 @@ def sync_panel(sess):
     existing = users[profile.orcid] if profile.orcid in [u["orcid"] for u in users()] else None
     
     if existing and existing.get("active"):
+        pub_count = 0
+        if existing.get("octopus_user_id"):
+            octopus = _octopus_client()
+            try:
+                publications = octopus.get_user_publications(existing["octopus_user_id"])
+                pub_count = len(publications)
+            except Exception:
+                pass
+        
         return Article(
             Header(H3("Auto-sync enabled")),
             P(f"Your publications are being synced to @{existing['bsky_handle']}"),
+            P(f"Publications found: {pub_count}"),
             P(f"Last sync: {existing.get('last_sync') or 'Never'}"),
             Form(
                 Button("Disable auto-sync", type="submit", cls="secondary"),
@@ -176,37 +186,35 @@ def sync_panel(sess):
             id="sync-panel",
         )
     
-    # Fetch publication count from Octopus
-    octopus = _octopus_client(profile)
-    try:
-        publications = octopus.get_user_publications(profile.orcid)
-        pub_count = len(publications)
-    except Exception as e:
-        pub_count = 0
-        publications = []
-    
-    if pub_count == 0:
-        return Article(
-            Header(H3("No publications found")),
-            P(f"No Octopus LIVE publications found for ORCID {profile.orcid}"),
-            P("Publish on Octopus LIVE first, then come back to sync."),
-            P(A("Logout", href=logout)),
-            id="sync-panel",
-        )
-    
+    # Show setup form - need Octopus author URL and Bluesky credentials
     return Article(
-        Header(H3(f"Found {pub_count} publications")),
-        P(f"We found {pub_count} Octopus LIVE publications for your ORCID."),
-        P("Enter your Bluesky credentials to enable auto-sync:"),
+        Header(H3("Set up auto-sync")),
+        P("To sync your Octopus LIVE publications to Bluesky, we need:"),
         Form(
             Fieldset(
+                Legend("Octopus Profile"),
+                Label(
+                    "Octopus author page URL",
+                    Input(
+                        id="octopus_url",
+                        placeholder="https://www.octopus.ac/authors/your-id",
+                        required=True,
+                    ),
+                ),
+                Small(
+                    "Find this at octopus.ac by clicking your profile. "
+                    "Example: https://www.octopus.ac/authors/cl5smny4a000009ieqml45bhz"
+                ),
+            ),
+            Fieldset(
+                Legend("Bluesky Account"),
                 Label("Bluesky handle", Input(id="handle", placeholder="user.bsky.social", required=True)),
                 Label("App password", Input(id="app_password", type="password", required=True)),
                 Small("Create an app password at bsky.app → Settings → App Passwords"),
             ),
             Button("Enable auto-sync", type="submit", cls="contrast"),
             Div(
-                Span("Syncing publications...", aria_busy="true"),
+                Span("Setting up sync...", aria_busy="true"),
                 id="loading",
                 cls="htmx-indicator",
                 style="display:none;",
@@ -222,10 +230,28 @@ def sync_panel(sess):
 
 
 @rt
-def enable_sync(handle: str, app_password: str, sess):
+def enable_sync(handle: str, app_password: str, octopus_url: str, sess):
     profile = _require_login(sess)
     if not profile:
         return _status_panel("Login with ORCID first.", "error")
+    
+    # Extract Octopus user ID from URL
+    octopus_user_id = OctopusClient.extract_user_id_from_url(octopus_url)
+    if not octopus_user_id:
+        return _status_panel(
+            "Invalid Octopus author URL. Should look like: "
+            "https://www.octopus.ac/authors/cl5smny4a000009ieqml45bhz",
+            "error"
+        )
+    
+    # Verify the Octopus user exists
+    octopus = _octopus_client()
+    try:
+        user_info = octopus.get_user_info(octopus_user_id)
+        if not user_info:
+            return _status_panel("Octopus user not found. Check your author URL.", "error")
+    except Exception as e:
+        return _status_panel(f"Could not verify Octopus profile: {e}", "error")
     
     # Validate Bluesky credentials
     atproto = _atproto_client()
@@ -233,6 +259,13 @@ def enable_sync(handle: str, app_password: str, sess):
         auth = atproto.create_session(handle, app_password)
     except Exception as e:
         return _status_panel(f"Invalid Bluesky credentials: {e}", "error")
+    
+    # Check how many publications exist
+    try:
+        publications = octopus.get_user_publications(octopus_user_id)
+        pub_count = len(publications)
+    except Exception:
+        pub_count = 0
     
     # Store encrypted credentials
     users = db.t.users
@@ -242,20 +275,29 @@ def enable_sync(handle: str, app_password: str, sess):
         orcid=profile.orcid,
         bsky_handle=handle,
         encrypted_app_password=encrypted_pw,
+        octopus_user_id=octopus_user_id,
         active=1,
         pk="orcid",
     )
     
-    # Trigger background sync
+    # Build response message
+    if pub_count > 0:
+        message = P(f"Found {pub_count} publications. Initial sync is running in the background...")
+        background = BackgroundTask(task_sync_user, orcid=profile.orcid)
+    else:
+        message = P("No publications found yet. We'll sync them when you publish on Octopus LIVE.")
+        background = None
+    
+    # Trigger background sync if there are publications
     return Response(
         content=Article(
             Header(H3("Auto-sync enabled!")),
             P(f"Your publications will be synced to @{handle}"),
-            P("Initial sync is running in the background..."),
+            message,
             P(A("Back to home", href=index)),
             id="sync-panel",
         ),
-        background=BackgroundTask(task_sync_user, orcid=profile.orcid),
+        background=background,
     )
 
 

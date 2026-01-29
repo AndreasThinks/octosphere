@@ -68,3 +68,42 @@ class OctopusClient:
 
     def publication_url(self, publication_id: str, version_id: str) -> str:
         return f"{self.web_url}/publications/{publication_id}/versions/{version_id}"
+
+    def get_user_info(self, user_id: str) -> dict[str, Any]:
+        """Get user info by internal Octopus user ID."""
+        url = f"{self.api_url}/users/{user_id}"
+        response = requests.get(url, headers=self._headers(), timeout=30)
+        response.raise_for_status()
+        return response.json()
+
+    def search_publications_by_orcid(self, orcid: str, limit: int = 100) -> list[dict[str, Any]]:
+        """Search publication-versions and filter by author ORCID.
+        
+        Note: The Octopus API doesn't have a direct ORCID lookup, so we search
+        and filter client-side.
+        """
+        # Search using ORCID - the search will match text but we filter exactly
+        url = f"{self.api_url}/publication-versions"
+        params = {"limit": limit}
+        response = requests.get(url, headers=self._headers(), params=params, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        
+        results = data.get("data", []) if isinstance(data, dict) else data
+        
+        # Filter to only publications by this exact ORCID
+        return [
+            item for item in results
+            if item.get("user", {}).get("orcid") == orcid
+        ]
+
+    @staticmethod
+    def extract_user_id_from_url(url: str) -> str | None:
+        """Extract internal Octopus user ID from author page URL.
+        
+        Example: https://www.octopus.ac/authors/cl5smny4a000009ieqml45bhz
+        Returns: cl5smny4a000009ieqml45bhz
+        """
+        import re
+        match = re.search(r'/authors/([a-zA-Z0-9]+)', url)
+        return match.group(1) if match else None
