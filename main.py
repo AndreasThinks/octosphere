@@ -1,8 +1,5 @@
 """FastHTML UI for Octosphere bridge."""
-from __future__ import annotations
-
 import secrets
-from dataclasses import dataclass
 
 from fasthtml.common import *
 from starlette.responses import RedirectResponse
@@ -28,10 +25,6 @@ app, rt = fast_app(
 )
 
 
-@dataclass
-class Credentials:
-    handle: str
-    app_password: str
 
 
 def _orcid_client() -> OrcidClient:
@@ -175,13 +168,13 @@ def sync_panel(sess):
 
 
 @rt
-def sync_now(creds: Credentials, sess):
+def sync_now(handle: str, app_password: str, sess):
     profile = _require_login(sess)
     if not profile:
         return _status_panel("Login with ORCID to sync publications.", "error")
     octopus = _octopus_client(profile)
     atproto = _atproto_client()
-    auth = atproto.create_session(creds.handle, creds.app_password)
+    auth = atproto.create_session(handle, app_password)
     results = sync_publications(octopus, atproto, auth, profile.orcid)
     rows = [
         Tr(
