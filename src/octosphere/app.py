@@ -69,7 +69,7 @@ def _page(title: str, *content, profile: OrcidProfile | None = None):
     """Wrap content in a standard page layout."""
     return (
         Title(f"{title} - Octosphere"),
-        Link(rel="icon", href="/static/octosphere.ico", type="image/x-icon"),
+        Favicon('/static/octosphere.ico', '/static/octosphere.ico'),
         Link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"),
         _nav(profile),
         Main(*content, cls="container"),
