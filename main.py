@@ -7,11 +7,11 @@ from dataclasses import dataclass
 from fasthtml.common import *
 from starlette.responses import RedirectResponse
 
-from octosphere.atproto.client import AtprotoClient
-from octosphere.bridge import sync_publications
-from octosphere.octopus.client import OctopusClient
-from octosphere.orcid import OrcidClient, OrcidProfile
-from octosphere.settings import Settings
+from atproto.client import AtprotoClient
+from bridge import sync_publications
+from octopus.client import OctopusClient
+from orcid import OrcidClient, OrcidProfile
+from settings import Settings
 
 
 settings: Settings | None
