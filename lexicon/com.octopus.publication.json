@@ -1,0 +1,113 @@
+{
+  "lexicon": 1,
+  "id": "com.octopus.publication",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Octopus publication record bridged from Octopus LIVE publications.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "octopusId",
+          "versionId",
+          "publicationType",
+          "title",
+          "status",
+          "contentHtml",
+          "contentText",
+          "citations",
+          "linkedTo",
+          "linkedFrom",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "octopusId": {
+            "type": "string",
+            "description": "Octopus publication id (UUID)."
+          },
+          "versionId": {
+            "type": "string",
+            "description": "Octopus publication version id (UUID)."
+          },
+          "publicationType": {
+            "type": "string",
+            "description": "Octopus publication type.",
+            "knownValues": [
+              "RESEARCH_PROBLEM",
+              "HYPOTHESIS",
+              "PROTOCOL",
+              "ANALYSIS",
+              "INTERPRETATION",
+              "REAL_WORLD_APPLICATION",
+              "DATA",
+              "PEER_REVIEW"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "description": "Publication title."
+          },
+          "status": {
+            "type": "string",
+            "description": "Octopus publication status (expected LIVE)."
+          },
+          "doi": {
+            "type": "string",
+            "description": "Publication version DOI, if present."
+          },
+          "ownerOrcid": {
+            "type": "string",
+            "description": "ORCID of the publication owner (if available)."
+          },
+          "contentHtml": {
+            "type": "string",
+            "description": "Raw HTML content body."
+          },
+          "contentText": {
+            "type": "string",
+            "description": "Plain text content for compact consumption."
+          },
+          "citations": {
+            "type": "array",
+            "description": "List of citation strings extracted from references.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "linkedTo": {
+            "type": "array",
+            "description": "Publication ids this record links to.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "linkedFrom": {
+            "type": "array",
+            "description": "Publication ids that link to this record.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "peerReviewOf": {
+            "type": "string",
+            "description": "Publication id this peer review references, if applicable."
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "ISO timestamp of Octopus createdAt."
+          },
+          "updatedAt": {
+            "type": "string",
+            "description": "ISO timestamp of Octopus updatedAt."
+          },
+          "canonicalUrl": {
+            "type": "string",
+            "description": "Public Octopus URL for the publication version."
+          }
+        }
+      }
+    }
+  }
+}
