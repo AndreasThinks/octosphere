@@ -1,1 +1,1 @@
-web: uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --lifespan off
+web: PYTHONPATH=src uvicorn octosphere.app:app --host 0.0.0.0 --port ${PORT:-8000} --lifespan off

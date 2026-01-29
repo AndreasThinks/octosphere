@@ -3,12 +3,15 @@ import secrets
 
 from fasthtml.common import *
 from starlette.responses import RedirectResponse
+from starlette.background import BackgroundTask
 
-from atproto.client import AtprotoClient
-from bridge import sync_publications
-from octopus.client import OctopusClient
-from orcid import OrcidClient, OrcidProfile
-from settings import Settings
+from octosphere.atproto.client import AtprotoClient
+from octosphere.bridge import sync_publications
+from octosphere.database import db, encrypt_password
+from octosphere.octopus.client import OctopusClient
+from octosphere.orcid import OrcidClient, OrcidProfile
+from octosphere.settings import Settings
+from octosphere.tasks import task_sync_user
 
 
 settings: Settings | None
@@ -25,6 +28,16 @@ app, rt = fast_app(
 )
 
 
+# Run migrations on startup
+def run_migrations():
+    from fastmigrate.core import run_migrations as fm_migrate
+    import os
+    # Find migrations relative to this file or use env var
+    migrations_path = os.getenv("MIGRATIONS_PATH", "migrations")
+    db_path = os.getenv("DATABASE_PATH", "octosphere.db")
+    fm_migrate(db_path, migrations_path)
+
+run_migrations()
 
 
 def _orcid_client() -> OrcidClient:
@@ -40,13 +53,13 @@ def _orcid_client() -> OrcidClient:
     )
 
 
-def _octopus_client(profile: OrcidProfile) -> OctopusClient:
+def _octopus_client(profile: OrcidProfile | None = None) -> OctopusClient:
     if settings is None:
         raise RuntimeError("Settings not configured")
     return OctopusClient(
         api_url=settings.octopus_api_url,
         web_url=settings.octopus_web_url,
-        access_token=profile.access_token,
+        access_token=profile.access_token if profile else None,
     )
 
 
@@ -101,7 +114,7 @@ def index(sess):
     if not profile:
         login_cta = A("Login with ORCID", href=login, role="button")
     else:
-        login_cta = P(f"Signed in as {profile.orcid}")
+        login_cta = P(f"Signed in as {profile.name or profile.orcid}")
     return Titled(
         "Octosphere Bridge",
         P("Sync Octopus LIVE publications to AT Proto (Bluesky)."),
@@ -143,21 +156,62 @@ def sync_panel(sess):
     profile = _profile_from_session(sess)
     if not profile:
         return _status_panel("Login with ORCID to continue.", "error")
+    
+    # Check if user already has auto-sync enabled
+    users = db.t.users
+    existing = users[profile.orcid] if profile.orcid in [u["orcid"] for u in users()] else None
+    
+    if existing and existing.get("active"):
+        return Article(
+            Header(H3("Auto-sync enabled")),
+            P(f"Your publications are being synced to @{existing['bsky_handle']}"),
+            P(f"Last sync: {existing.get('last_sync') or 'Never'}"),
+            Form(
+                Button("Disable auto-sync", type="submit", cls="secondary"),
+                hx_post=disable_sync,
+                hx_target="#sync-panel",
+                hx_swap="outerHTML",
+            ),
+            P(A("Logout", href=logout)),
+            id="sync-panel",
+        )
+    
+    # Fetch publication count from Octopus
+    octopus = _octopus_client(profile)
+    try:
+        publications = octopus.get_user_publications(profile.orcid)
+        pub_count = len(publications)
+    except Exception as e:
+        pub_count = 0
+        publications = []
+    
+    if pub_count == 0:
+        return Article(
+            Header(H3("No publications found")),
+            P(f"No Octopus LIVE publications found for ORCID {profile.orcid}"),
+            P("Publish on Octopus LIVE first, then come back to sync."),
+            P(A("Logout", href=logout)),
+            id="sync-panel",
+        )
+    
     return Article(
-        Header(H3("Sync LIVE publications")),
+        Header(H3(f"Found {pub_count} publications")),
+        P(f"We found {pub_count} Octopus LIVE publications for your ORCID."),
+        P("Enter your Bluesky credentials to enable auto-sync:"),
         Form(
             Fieldset(
-                Label("ATProto handle", Input(id="handle", required=True)),
+                Label("Bluesky handle", Input(id="handle", placeholder="user.bsky.social", required=True)),
                 Label("App password", Input(id="app_password", type="password", required=True)),
+                Small("Create an app password at bsky.app → Settings → App Passwords"),
             ),
-            Button("Sync all live publications", type="submit", cls="contrast"),
+            Button("Enable auto-sync", type="submit", cls="contrast"),
             Div(
                 Span("Syncing publications...", aria_busy="true"),
                 id="loading",
                 cls="htmx-indicator",
                 style="display:none;",
             ),
-            hx_post=sync_now,
+            hx_post=enable_sync,
             hx_target="#sync-panel",
             hx_swap="outerHTML",
             hx_indicator="#loading",
@@ -168,31 +222,56 @@ def sync_panel(sess):
 
 
 @rt
-def sync_now(handle: str, app_password: str, sess):
+def enable_sync(handle: str, app_password: str, sess):
     profile = _require_login(sess)
     if not profile:
-        return _status_panel("Login with ORCID to sync publications.", "error")
-    octopus = _octopus_client(profile)
+        return _status_panel("Login with ORCID first.", "error")
+    
+    # Validate Bluesky credentials
     atproto = _atproto_client()
-    auth = atproto.create_session(handle, app_password)
-    results = sync_publications(octopus, atproto, auth, profile.orcid)
-    rows = [
-        Tr(
-            Td(r.publication_id),
-            Td(r.version_id),
-            Td(A("record", href=r.uri)),
-        )
-        for r in results
-    ]
-    table = Table(
-        Thead(Tr(Th("Publication"), Th("Version"), Th("AT URI"))),
-        Tbody(*rows),
+    try:
+        auth = atproto.create_session(handle, app_password)
+    except Exception as e:
+        return _status_panel(f"Invalid Bluesky credentials: {e}", "error")
+    
+    # Store encrypted credentials
+    users = db.t.users
+    encrypted_pw = encrypt_password(app_password)
+    
+    users.insert(
+        orcid=profile.orcid,
+        bsky_handle=handle,
+        encrypted_app_password=encrypted_pw,
+        active=1,
+        pk="orcid",
     )
+    
+    # Trigger background sync
+    return Response(
+        content=Article(
+            Header(H3("Auto-sync enabled!")),
+            P(f"Your publications will be synced to @{handle}"),
+            P("Initial sync is running in the background..."),
+            P(A("Back to home", href=index)),
+            id="sync-panel",
+        ),
+        background=BackgroundTask(task_sync_user, orcid=profile.orcid),
+    )
+
+
+@rt
+def disable_sync(sess):
+    profile = _require_login(sess)
+    if not profile:
+        return _status_panel("Login with ORCID first.", "error")
+    
+    users = db.t.users
+    users.update({"orcid": profile.orcid, "active": 0})
+    
     return Article(
-        Header(H3("Sync complete")),
-        P(f"Created {len(results)} AT Proto records."),
-        table,
-        P(A("Sync another", href=index)),
+        Header(H3("Auto-sync disabled")),
+        P("Your publications will no longer be synced."),
+        P(A("Back to home", href=index)),
         id="sync-panel",
     )
 
@@ -200,7 +279,3 @@ def sync_now(handle: str, app_password: str, sess):
 @rt
 def home():
     return RedirectResponse(url=index.to(), status_code=303)
-
-
-# For package usage, run with: uvicorn octosphere.app:app --port 5001
-# serve() is designed for single-file apps - use uvicorn directly for packages

@@ -24,6 +24,8 @@ class Settings:
     orcid_scope: str = "/authenticate"
     atproto_pds_url: str = "https://bsky.social"
     session_secret: str | None = None
+    sync_interval_days: int = 7
+    encryption_key: str | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -49,6 +51,8 @@ class Settings:
             atproto_pds_url=_env("ATPROTO_PDS_URL", "https://bsky.social")
             or "https://bsky.social",
             session_secret=_env("OCTOSPHERE_SESSION_SECRET"),
+            sync_interval_days=int(_env("SYNC_INTERVAL_DAYS", "7") or "7"),
+            encryption_key=_env("ENCRYPTION_KEY"),
         )
 
         if missing:
