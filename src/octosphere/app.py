@@ -25,6 +25,7 @@ except RuntimeError as exc:
 app, rt = fast_app(
     title="Octosphere",
     secret_key=settings.session_secret if settings else None,
+    static_path="static",
 )
 
 
@@ -41,7 +42,12 @@ def _nav(profile: OrcidProfile | None = None):
         nav_items.append(Li(A("Sign in", href="/login")))
     
     return Nav(
-        Ul(Li(A(Strong("Octosphere"), href="/"))),
+        Ul(Li(A(
+            Img(src="/static/octosphere.png", alt="Octosphere", style="height: 28px; vertical-align: middle; margin-right: 0.5rem;"),
+            Strong("Octosphere"),
+            href="/",
+            style="display: flex; align-items: center;",
+        ))),
         Ul(*nav_items),
         cls="container-fluid",
     )
@@ -51,18 +57,32 @@ def _page(title: str, *content, profile: OrcidProfile | None = None):
     """Wrap content in a standard page layout."""
     return (
         Title(f"{title} - Octosphere"),
+        Link(rel="icon", href="/static/octosphere.ico", type="image/x-icon"),
+        Link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"),
         _nav(profile),
         Main(*content, cls="container"),
         Footer(
             P(
                 "Octosphere connects ",
                 A("Octopus LIVE", href="https://www.octopus.ac"),
-                " with ",
-                A("Bluesky", href="https://bsky.app"),
-                ".",
+                " with the social web.",
+            ),
+            P(
+                A(
+                    I(cls="fa-brands fa-github"),
+                    " GitHub",
+                    href="https://github.com/AndreasThinks/octosphere",
+                    style="margin-right: 1rem;",
+                ),
+            ),
+            P(
+                "Created by ",
+                A("AndreasThinks", href="https://andreasthinks.me/"),
+                " with help from some ✨vibes✨",
+                style="font-size: 0.875rem; color: var(--pico-muted-color);",
             ),
             cls="container",
-            style="margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--pico-muted-border-color);",
+            style="margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--pico-muted-border-color); text-align: center;",
         ),
     )
 
@@ -233,19 +253,11 @@ def feed(sess):
             Header(H3("Coming Soon")),
             P(
                 "We're building a live feed that will show research publications "
-                "as they are synced to Bluesky by researchers using Octosphere."
+                "as they are synced by researchers using Octosphere."
             ),
             P(
                 "This will provide a real-time window into the latest scientific "
                 "contributions being shared on the social web."
-            ),
-            Footer(
-                P(
-                    "Want to be notified when this launches? ",
-                    A("Follow us on Bluesky", href="https://bsky.app"),
-                    ".",
-                    style="font-size: 0.875rem;",
-                ),
             ),
         ),
         profile=profile,
