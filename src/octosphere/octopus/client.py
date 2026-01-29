@@ -59,8 +59,21 @@ class OctopusClient:
         return response.json()
 
     def map_publication(self, item: dict[str, Any]) -> OctopusPublication:
-        publication = item.get("publication") or item.get("publicationData") or item
-        version = item.get("latestVersion") or item.get("publicationVersion") or item
+        # Publication is the item itself (contains id, type, doi, etc.)
+        publication = item
+        
+        # Version is in versions[0] (the API returns versions array, not latestVersion)
+        versions = item.get("versions", [])
+        if versions:
+            # Find the latest live version, or fall back to first version
+            version = next(
+                (v for v in versions if v.get("isLatestLiveVersion")),
+                versions[0]
+            )
+        else:
+            # Fallback for different API response structures
+            version = item.get("latestVersion") or item.get("publicationVersion") or item
+        
         linked = item.get("linked") or {}
         linked_to = [str(p.get("id")) for p in linked.get("linkedTo", [])]
         linked_from = [str(p.get("id")) for p in linked.get("linkedFrom", [])]
