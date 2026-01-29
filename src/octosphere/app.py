@@ -28,6 +28,45 @@ app, rt = fast_app(
 )
 
 
+def _nav(profile: OrcidProfile | None = None):
+    """Render navigation bar."""
+    nav_items = [
+        Li(A("Home", href="/")),
+        Li(A("Feed", href="/feed")),
+    ]
+    if profile:
+        nav_items.append(Li(A("Dashboard", href="/dashboard")))
+        nav_items.append(Li(A("Sign out", href="/logout")))
+    else:
+        nav_items.append(Li(A("Sign in", href="/login")))
+    
+    return Nav(
+        Ul(Li(A(Strong("Octosphere"), href="/"))),
+        Ul(*nav_items),
+        cls="container-fluid",
+    )
+
+
+def _page(title: str, *content, profile: OrcidProfile | None = None):
+    """Wrap content in a standard page layout."""
+    return (
+        Title(f"{title} - Octosphere"),
+        _nav(profile),
+        Main(*content, cls="container"),
+        Footer(
+            P(
+                "Octosphere connects ",
+                A("Octopus LIVE", href="https://www.octopus.ac"),
+                " with ",
+                A("Bluesky", href="https://bsky.app"),
+                ".",
+            ),
+            cls="container",
+            style="margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--pico-muted-border-color);",
+        ),
+    )
+
+
 # Run migrations on startup
 def run_migrations():
     from fastmigrate.core import run_migrations as fm_migrate
@@ -99,26 +138,140 @@ def _status_panel(message: str, status: str = "info"):
     )
 
 
-@rt
+@rt("/")
 def index(sess):
-    if settings_error:
-        return Titled(
-            "Octosphere Bridge",
-            P("Missing configuration"),
-            Pre(settings_error),
-            P("Set the required environment variables and restart."),
-        )
+    """Homepage - explains what Octosphere is."""
     profile = _profile_from_session(sess)
-    login_cta = None
+    
+    if settings_error:
+        return _page(
+            "Configuration Error",
+            Article(
+                Header(H3("Missing configuration")),
+                Pre(settings_error),
+                P("Set the required environment variables and restart."),
+            ),
+            profile=profile,
+        )
+    
+    return _page(
+        "Home",
+        # Hero section
+        Header(
+            H1("Octosphere"),
+            P(
+                "Connecting open science with the social web",
+                style="font-size: 1.25rem; color: var(--pico-muted-color);",
+            ),
+            style="text-align: center; padding: 2rem 0;",
+        ),
+        # What it does
+        Section(
+            H2("What is Octosphere?"),
+            P(
+                "Octosphere bridges the gap between academic publishing and social media. "
+                "It automatically syncs your research publications from ",
+                A("Octopus LIVE", href="https://www.octopus.ac"),
+                " to ",
+                A("Bluesky", href="https://bsky.app"),
+                ", an open social network built on the AT Protocol."
+            ),
+            P(
+                "By sharing your work on social platforms, you can reach broader audiences, "
+                "engage with the public, and increase the visibility of your research beyond "
+                "traditional academic channels."
+            ),
+        ),
+        # How it works
+        Section(
+            H2("How it works"),
+            Ol(
+                Li(
+                    Strong("Sign in with ORCID"),
+                    " — Authenticate using your researcher identifier.",
+                ),
+                Li(
+                    Strong("Connect your Octopus profile"),
+                    " — Link your Octopus LIVE author page.",
+                ),
+                Li(
+                    Strong("Sync to Bluesky"),
+                    " — Choose one-time sync or enable automatic syncing of future publications.",
+                ),
+            ),
+        ),
+        # CTA
+        Section(
+            A(
+                "Get started" if not profile else "Go to Dashboard",
+                href="/login" if not profile else "/dashboard",
+                role="button",
+                cls="contrast",
+            ),
+            style="text-align: center; padding: 2rem 0;",
+        ),
+        profile=profile,
+    )
+
+
+@rt("/feed")
+def feed(sess):
+    """Live feed page - coming soon."""
+    profile = _profile_from_session(sess)
+    
+    return _page(
+        "Feed",
+        Header(
+            H1("Live Feed"),
+            P(
+                "Real-time stream of research publications",
+                style="font-size: 1.25rem; color: var(--pico-muted-color);",
+            ),
+            style="text-align: center; padding: 2rem 0;",
+        ),
+        Article(
+            Header(H3("Coming Soon")),
+            P(
+                "We're building a live feed that will show research publications "
+                "as they are synced to Bluesky by researchers using Octosphere."
+            ),
+            P(
+                "This will provide a real-time window into the latest scientific "
+                "contributions being shared on the social web."
+            ),
+            Footer(
+                P(
+                    "Want to be notified when this launches? ",
+                    A("Follow us on Bluesky", href="https://bsky.app"),
+                    ".",
+                    style="font-size: 0.875rem;",
+                ),
+            ),
+        ),
+        profile=profile,
+    )
+
+
+@rt("/dashboard")
+def dashboard(sess):
+    """Dashboard - sync panel for logged in users."""
+    profile = _profile_from_session(sess)
+    
     if not profile:
-        login_cta = A("Login with ORCID", href=login, role="button")
-    else:
-        login_cta = P(f"Signed in as {profile.name or profile.orcid}")
-    return Titled(
-        "Octosphere Bridge",
-        P("Sync Octopus LIVE publications to AT Proto (Bluesky)."),
-        login_cta,
-        Div(id="sync-panel", hx_get=sync_panel, hx_trigger="load"),
+        return RedirectResponse(url="/login", status_code=303)
+    
+    return _page(
+        "Dashboard",
+        Header(
+            H1("Dashboard"),
+            P(
+                f"Signed in as {profile.name or profile.orcid}",
+                style="color: var(--pico-muted-color);",
+            ),
+            style="text-align: center; padding: 1rem 0;",
+        ),
+        Div(id="sync-panel", hx_get="/sync_panel", hx_trigger="load"),
+        profile=profile,
     )
 
 
@@ -140,7 +293,7 @@ def callback(code: str | None = None, state: str | None = None, sess=None):
         "access_token": profile.access_token,
         "name": profile.name,
     }
-    return RedirectResponse(url=index.to(), status_code=303)
+    return RedirectResponse(url="/dashboard", status_code=303)
 
 
 @rt
@@ -148,7 +301,7 @@ def logout(sess):
     sess.pop("orcid", None)
     sess.pop("orcid_state", None)
     sess.pop("octopus_user_id", None)
-    return RedirectResponse(url=index.to(), status_code=303)
+    return RedirectResponse(url="/", status_code=303)
 
 
 @rt
@@ -176,18 +329,17 @@ def sync_panel(sess):
             synced_count = len([s for s in synced() if s.get("orcid") == profile.orcid])
         
         return Article(
-            Header(H3("✓ Auto-sync enabled")),
+            Header(H3("Auto-sync enabled")),
             P(f"Your publications are being synced to @{existing['bsky_handle']}"),
-            P(f"📚 Total publications: {pub_count}"),
-            P(f"✓ Already synced: {synced_count}"),
+            P(f"Total publications: {pub_count}"),
+            P(f"Already synced: {synced_count}"),
             P(f"Last sync: {existing.get('last_sync') or 'Never'}"),
             Form(
                 Button("Disable auto-sync", type="submit", cls="secondary"),
-                hx_post=disable_sync,
+                hx_post="/disable_sync",
                 hx_target="#sync-panel",
                 hx_swap="outerHTML",
             ),
-            P(A("Logout", href=logout)),
             id="sync-panel",
         )
     
@@ -217,12 +369,11 @@ def sync_panel(sess):
                 cls="htmx-indicator",
                 style="display:none;",
             ),
-            hx_post=validate_octopus,
+            hx_post="/validate_octopus",
             hx_target="#sync-panel",
             hx_swap="outerHTML",
             hx_indicator="#loading",
         ),
-        P(A("Logout", href=logout)),
         id="sync-panel",
     )
 
@@ -277,7 +428,7 @@ def validate_octopus(octopus_url: str, sess):
     
     # Step 2: Show publications and ask for Bluesky credentials
     return Article(
-        Header(H3(f"📚 Found {pub_count} publications!")),
+        Header(H3(f"Found {pub_count} publications")),
         Ul(*pub_items) if pub_items else P("No publications yet - you can still set up sync for future publications."),
         Hr(),
         H4("Step 2: Connect to Bluesky"),
@@ -286,7 +437,7 @@ def validate_octopus(octopus_url: str, sess):
             Fieldset(
                 Label("Bluesky handle", Input(id="handle", placeholder="user.bsky.social", required=True)),
                 Label("App password", Input(id="app_password", type="password", required=True)),
-                Small("Create an app password at bsky.app → Settings → App Passwords"),
+                Small("Create an app password at bsky.app Settings → App Passwords"),
             ),
             Div(
                 Button("Sync now (one-time)", type="submit", name="action", value="sync_once", cls="secondary"),
@@ -299,14 +450,14 @@ def validate_octopus(octopus_url: str, sess):
                 cls="htmx-indicator",
                 style="display:none;",
             ),
-            hx_post=setup_sync,
+            hx_post="/setup_sync",
             hx_target="#sync-panel",
             hx_swap="outerHTML",
             hx_indicator="#loading2",
         ),
         P(Small("One-time sync: Sync existing publications now, no future auto-sync.")),
-        P(Small("Auto-sync: Sync now + automatically sync new publications every 7 days.")),
-        P(A("← Back", href=sync_panel, hx_get=sync_panel, hx_target="#sync-panel")),
+        P(Small("Auto-sync: Sync now and automatically sync new publications every 7 days.")),
+        P(A("Back", href="/sync_panel", hx_get="/sync_panel", hx_target="#sync-panel")),
         id="sync-panel",
     )
 
@@ -352,18 +503,18 @@ def setup_sync(handle: str, app_password: str, action: str, sess):
         )
         
         if pub_count > 0:
-            message = P(f"✓ Auto-sync enabled! Syncing {pub_count} publications in the background...")
+            message = P(f"Syncing {pub_count} publications in the background...")
             background = BackgroundTask(task_sync_user, orcid=profile.orcid)
         else:
-            message = P("✓ Auto-sync enabled! We'll sync your publications when you publish on Octopus LIVE.")
+            message = P("We'll sync your publications when you publish on Octopus LIVE.")
             background = None
         
         return Response(
             content=Article(
-                Header(H3("Auto-sync enabled!")),
+                Header(H3("Auto-sync enabled")),
                 P(f"Your publications will be synced to @{handle}"),
                 message,
-                P(A("Back to home", href=index)),
+                P(A("Back to home", href="/")),
                 id="sync-panel",
             ),
             background=background,
@@ -376,7 +527,7 @@ def setup_sync(handle: str, app_password: str, action: str, sess):
                 Header(H3("Nothing to sync")),
                 P("You don't have any publications on Octopus LIVE yet."),
                 P("Come back after you've published!"),
-                P(A("Back to home", href=index)),
+                P(A("Back to home", href="/")),
                 id="sync-panel",
             )
         
@@ -403,7 +554,7 @@ def setup_sync(handle: str, app_password: str, action: str, sess):
             ]
             
             return Article(
-                Header(H3(f"✓ Synced {len(results)} publications!")),
+                Header(H3(f"Synced {len(results)} publications")),
                 P(f"Your publications are now on @{handle}"),
                 Table(
                     Thead(Tr(Th("Publication"), Th("Link"))),
@@ -416,21 +567,15 @@ def setup_sync(handle: str, app_password: str, action: str, sess):
                     Input(type="hidden", name="app_password", value=app_password),
                     Input(type="hidden", name="action", value="auto_sync"),
                     Button("Enable auto-sync", type="submit", cls="contrast"),
-                    hx_post=setup_sync,
+                    hx_post="/setup_sync",
                     hx_target="#sync-panel",
                     hx_swap="outerHTML",
                 ),
-                P(A("No thanks, back to home", href=index)),
+                P(A("No thanks, back to home", href="/")),
                 id="sync-panel",
             )
         except Exception as e:
             return _status_panel(f"Sync failed: {e}", "error")
-
-
-@rt
-def enable_sync(handle: str, app_password: str, octopus_url: str, sess):
-    """Legacy endpoint - redirect to new flow."""
-    return RedirectResponse(url=sync_panel.to(), status_code=303)
 
 
 @rt
@@ -445,11 +590,6 @@ def disable_sync(sess):
     return Article(
         Header(H3("Auto-sync disabled")),
         P("Your publications will no longer be synced automatically."),
-        P(A("Back to home", href=index)),
+        P(A("Back to home", href="/")),
         id="sync-panel",
     )
-
-
-@rt
-def home():
-    return RedirectResponse(url=index.to(), status_code=303)
