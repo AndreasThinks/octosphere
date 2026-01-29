@@ -346,12 +346,14 @@ source = { virtual = "." }
 dependencies = [
     { name = "python-fasthtml" },
     { name = "requests" },
+    { name = "uvicorn" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "python-fasthtml", git = "https://github.com/AnswerDotAI/fasthtml.git" },
     { name = "requests", specifier = ">=2.31.0" },
+    { name = "uvicorn", specifier = ">=0.30.0" },
 ]
 
 [[package]]

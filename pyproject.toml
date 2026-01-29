@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
   "python-fasthtml @ git+https://github.com/AnswerDotAI/fasthtml.git",
   "requests>=2.31.0",
+  "uvicorn>=0.30.0",
 ]
 
 [tool.uv]
