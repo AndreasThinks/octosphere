@@ -1,5 +1,6 @@
 """FastHTML UI for Octosphere bridge."""
 import secrets
+from pathlib import Path
 
 from fasthtml.common import *
 from starlette.responses import RedirectResponse
@@ -14,6 +15,9 @@ from octosphere.settings import Settings
 from octosphere.tasks import task_sync_user
 
 
+# Get absolute path to static folder (relative to project root)
+STATIC_PATH = Path(__file__).parent.parent.parent / "static"
+
 settings: Settings | None
 settings_error: str | None = None
 try:
@@ -25,7 +29,7 @@ except RuntimeError as exc:
 app, rt = fast_app(
     title="Octosphere",
     secret_key=settings.session_secret if settings else None,
-    static_path="static",
+    static_path=str(STATIC_PATH),
 )
 
 
@@ -63,26 +67,14 @@ def _page(title: str, *content, profile: OrcidProfile | None = None):
         Main(*content, cls="container"),
         Footer(
             P(
-                "Octosphere connects ",
-                A("Octopus LIVE", href="https://www.octopus.ac"),
-                " with the social web.",
-            ),
-            P(
-                A(
-                    I(cls="fa-brands fa-github"),
-                    " GitHub",
-                    href="https://github.com/AndreasThinks/octosphere",
-                    style="margin-right: 1rem;",
-                ),
-            ),
-            P(
+                A(I(cls="fa-brands fa-github"), href="https://github.com/AndreasThinks/octosphere", style="margin-right: 1rem;"),
                 "Created by ",
                 A("AndreasThinks", href="https://andreasthinks.me/"),
                 " with help from some ✨vibes✨",
                 style="font-size: 0.875rem; color: var(--pico-muted-color);",
             ),
             cls="container",
-            style="margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--pico-muted-border-color); text-align: center;",
+            style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--pico-muted-border-color); text-align: center;",
         ),
     )
 
