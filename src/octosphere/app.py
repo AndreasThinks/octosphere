@@ -429,10 +429,13 @@ def validate_octopus(octopus_url: str, sess):
     # Build publication preview (show up to 5)
     pub_items = []
     for pub in publications[:5]:
-        # Handle different response structures
-        version = pub.get("latestLiveVersion") or pub.get("latestVersion") or pub
-        title = version.get("title") or pub.get("title") or "Untitled"
-        pub_type = version.get("publication", {}).get("type") or pub.get("type") or ""
+        # API structure: pub.versions[0].title contains the title
+        versions = pub.get("versions", [])
+        if versions:
+            title = versions[0].get("title") or "Untitled"
+        else:
+            title = pub.get("title") or "Untitled"
+        pub_type = pub.get("type") or ""
         pub_items.append(Li(f"{pub_type}: {title[:60]}{'...' if len(title) > 60 else ''}"))
     
     if pub_count > 5:
