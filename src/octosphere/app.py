@@ -32,7 +32,6 @@ app, rt = fast_app(
 def run_migrations():
     from fastmigrate.core import run_migrations as fm_migrate
     import os
-    # Find migrations relative to this file or use env var
     migrations_path = os.getenv("MIGRATIONS_PATH", "migrations")
     db_path = os.getenv("DATABASE_PATH", "octosphere.db")
     fm_migrate(db_path, migrations_path)
@@ -148,6 +147,7 @@ def callback(code: str | None = None, state: str | None = None, sess=None):
 def logout(sess):
     sess.pop("orcid", None)
     sess.pop("orcid_state", None)
+    sess.pop("octopus_user_id", None)
     return RedirectResponse(url=index.to(), status_code=303)
 
 
@@ -163,6 +163,7 @@ def sync_panel(sess):
     
     if existing and existing.get("active"):
         pub_count = 0
+        synced_count = 0
         if existing.get("octopus_user_id"):
             octopus = _octopus_client()
             try:
@@ -170,11 +171,15 @@ def sync_panel(sess):
                 pub_count = len(publications)
             except Exception:
                 pass
+            # Count already synced
+            synced = db.t.synced_publications
+            synced_count = len([s for s in synced() if s.get("orcid") == profile.orcid])
         
         return Article(
-            Header(H3("Auto-sync enabled")),
+            Header(H3("✓ Auto-sync enabled")),
             P(f"Your publications are being synced to @{existing['bsky_handle']}"),
-            P(f"Publications found: {pub_count}"),
+            P(f"📚 Total publications: {pub_count}"),
+            P(f"✓ Already synced: {synced_count}"),
             P(f"Last sync: {existing.get('last_sync') or 'Never'}"),
             Form(
                 Button("Disable auto-sync", type="submit", cls="secondary"),
@@ -186,13 +191,12 @@ def sync_panel(sess):
             id="sync-panel",
         )
     
-    # Show setup form - need Octopus author URL and Bluesky credentials
+    # Step 1: Ask for Octopus author URL
     return Article(
-        Header(H3("Set up auto-sync")),
-        P("To sync your Octopus LIVE publications to Bluesky, we need:"),
+        Header(H3("Step 1: Connect your Octopus profile")),
+        P("First, let's find your Octopus LIVE publications."),
         Form(
             Fieldset(
-                Legend("Octopus Profile"),
                 Label(
                     "Octopus author page URL",
                     Input(
@@ -206,20 +210,14 @@ def sync_panel(sess):
                     "Example: https://www.octopus.ac/authors/cl5smny4a000009ieqml45bhz"
                 ),
             ),
-            Fieldset(
-                Legend("Bluesky Account"),
-                Label("Bluesky handle", Input(id="handle", placeholder="user.bsky.social", required=True)),
-                Label("App password", Input(id="app_password", type="password", required=True)),
-                Small("Create an app password at bsky.app → Settings → App Passwords"),
-            ),
-            Button("Enable auto-sync", type="submit", cls="contrast"),
+            Button("Find my publications", type="submit", cls="contrast"),
             Div(
-                Span("Setting up sync...", aria_busy="true"),
+                Span("Looking up publications...", aria_busy="true"),
                 id="loading",
                 cls="htmx-indicator",
                 style="display:none;",
             ),
-            hx_post=enable_sync,
+            hx_post=validate_octopus,
             hx_target="#sync-panel",
             hx_swap="outerHTML",
             hx_indicator="#loading",
@@ -230,7 +228,8 @@ def sync_panel(sess):
 
 
 @rt
-def enable_sync(handle: str, app_password: str, octopus_url: str, sess):
+def validate_octopus(octopus_url: str, sess):
+    """Step 1 result: Validate Octopus URL and show publications."""
     profile = _require_login(sess)
     if not profile:
         return _status_panel("Login with ORCID first.", "error")
@@ -244,7 +243,7 @@ def enable_sync(handle: str, app_password: str, octopus_url: str, sess):
             "error"
         )
     
-    # Verify the Octopus user exists
+    # Verify the Octopus user exists and fetch publications
     octopus = _octopus_client()
     try:
         user_info = octopus.get_user_info(octopus_user_id)
@@ -253,6 +252,76 @@ def enable_sync(handle: str, app_password: str, octopus_url: str, sess):
     except Exception as e:
         return _status_panel(f"Could not verify Octopus profile: {e}", "error")
     
+    # Fetch publications
+    try:
+        publications = octopus.get_user_publications(octopus_user_id)
+        pub_count = len(publications)
+    except Exception:
+        publications = []
+        pub_count = 0
+    
+    # Store octopus_user_id in session for next step
+    sess["octopus_user_id"] = octopus_user_id
+    
+    # Build publication preview (show up to 5)
+    pub_items = []
+    for pub in publications[:5]:
+        # Handle different response structures
+        version = pub.get("latestLiveVersion") or pub.get("latestVersion") or pub
+        title = version.get("title") or pub.get("title") or "Untitled"
+        pub_type = version.get("publication", {}).get("type") or pub.get("type") or ""
+        pub_items.append(Li(f"{pub_type}: {title[:60]}{'...' if len(title) > 60 else ''}"))
+    
+    if pub_count > 5:
+        pub_items.append(Li(f"...and {pub_count - 5} more"))
+    
+    # Step 2: Show publications and ask for Bluesky credentials
+    return Article(
+        Header(H3(f"📚 Found {pub_count} publications!")),
+        Ul(*pub_items) if pub_items else P("No publications yet - you can still set up sync for future publications."),
+        Hr(),
+        H4("Step 2: Connect to Bluesky"),
+        P("Enter your Bluesky credentials to sync these publications:"),
+        Form(
+            Fieldset(
+                Label("Bluesky handle", Input(id="handle", placeholder="user.bsky.social", required=True)),
+                Label("App password", Input(id="app_password", type="password", required=True)),
+                Small("Create an app password at bsky.app → Settings → App Passwords"),
+            ),
+            Div(
+                Button("Sync now (one-time)", type="submit", name="action", value="sync_once", cls="secondary"),
+                Button("Enable auto-sync", type="submit", name="action", value="auto_sync", cls="contrast"),
+                style="display: flex; gap: 1rem;",
+            ),
+            Div(
+                Span("Syncing...", aria_busy="true"),
+                id="loading2",
+                cls="htmx-indicator",
+                style="display:none;",
+            ),
+            hx_post=setup_sync,
+            hx_target="#sync-panel",
+            hx_swap="outerHTML",
+            hx_indicator="#loading2",
+        ),
+        P(Small("One-time sync: Sync existing publications now, no future auto-sync.")),
+        P(Small("Auto-sync: Sync now + automatically sync new publications every 7 days.")),
+        P(A("← Back", href=sync_panel, hx_get=sync_panel, hx_target="#sync-panel")),
+        id="sync-panel",
+    )
+
+
+@rt
+def setup_sync(handle: str, app_password: str, action: str, sess):
+    """Handle both one-time sync and auto-sync setup."""
+    profile = _require_login(sess)
+    if not profile:
+        return _status_panel("Login with ORCID first.", "error")
+    
+    octopus_user_id = sess.get("octopus_user_id")
+    if not octopus_user_id:
+        return _status_panel("Session expired. Please start over.", "error")
+    
     # Validate Bluesky credentials
     atproto = _atproto_client()
     try:
@@ -260,45 +329,108 @@ def enable_sync(handle: str, app_password: str, octopus_url: str, sess):
     except Exception as e:
         return _status_panel(f"Invalid Bluesky credentials: {e}", "error")
     
-    # Check how many publications exist
+    # Get publication count
+    octopus = _octopus_client()
     try:
         publications = octopus.get_user_publications(octopus_user_id)
         pub_count = len(publications)
     except Exception:
         pub_count = 0
     
-    # Store encrypted credentials
     users = db.t.users
     encrypted_pw = encrypt_password(app_password)
     
-    users.insert(
-        orcid=profile.orcid,
-        bsky_handle=handle,
-        encrypted_app_password=encrypted_pw,
-        octopus_user_id=octopus_user_id,
-        active=1,
-        pk="orcid",
-    )
+    if action == "auto_sync":
+        # Store credentials for ongoing sync
+        users.insert(
+            orcid=profile.orcid,
+            bsky_handle=handle,
+            encrypted_app_password=encrypted_pw,
+            octopus_user_id=octopus_user_id,
+            active=1,
+            pk="orcid",
+        )
+        
+        if pub_count > 0:
+            message = P(f"✓ Auto-sync enabled! Syncing {pub_count} publications in the background...")
+            background = BackgroundTask(task_sync_user, orcid=profile.orcid)
+        else:
+            message = P("✓ Auto-sync enabled! We'll sync your publications when you publish on Octopus LIVE.")
+            background = None
+        
+        return Response(
+            content=Article(
+                Header(H3("Auto-sync enabled!")),
+                P(f"Your publications will be synced to @{handle}"),
+                message,
+                P(A("Back to home", href=index)),
+                id="sync-panel",
+            ),
+            background=background,
+        )
     
-    # Build response message
-    if pub_count > 0:
-        message = P(f"Found {pub_count} publications. Initial sync is running in the background...")
-        background = BackgroundTask(task_sync_user, orcid=profile.orcid)
-    else:
-        message = P("No publications found yet. We'll sync them when you publish on Octopus LIVE.")
-        background = None
-    
-    # Trigger background sync if there are publications
-    return Response(
-        content=Article(
-            Header(H3("Auto-sync enabled!")),
-            P(f"Your publications will be synced to @{handle}"),
-            message,
-            P(A("Back to home", href=index)),
-            id="sync-panel",
-        ),
-        background=background,
-    )
+    else:  # sync_once
+        # Don't store credentials permanently, just sync now
+        if pub_count == 0:
+            return Article(
+                Header(H3("Nothing to sync")),
+                P("You don't have any publications on Octopus LIVE yet."),
+                P("Come back after you've published!"),
+                P(A("Back to home", href=index)),
+                id="sync-panel",
+            )
+        
+        # Sync publications synchronously and show results
+        try:
+            results = sync_publications(octopus, atproto, auth, octopus_user_id)
+            
+            # Record synced publications
+            synced = db.t.synced_publications
+            for r in results:
+                synced.insert(
+                    orcid=profile.orcid,
+                    octopus_pub_id=r.publication_id,
+                    octopus_version_id=r.version_id,
+                    at_uri=r.uri,
+                )
+            
+            rows = [
+                Tr(
+                    Td(r.publication_id[:12] + "..."),
+                    Td(A("View on Bluesky", href=r.uri.replace("at://", "https://bsky.app/profile/").replace("/com.octopus.publication/", "/post/") if r.uri else "#")),
+                )
+                for r in results[:10]
+            ]
+            
+            return Article(
+                Header(H3(f"✓ Synced {len(results)} publications!")),
+                P(f"Your publications are now on @{handle}"),
+                Table(
+                    Thead(Tr(Th("Publication"), Th("Link"))),
+                    Tbody(*rows),
+                ) if rows else None,
+                Hr(),
+                P("Want to automatically sync future publications?"),
+                Form(
+                    Input(type="hidden", name="handle", value=handle),
+                    Input(type="hidden", name="app_password", value=app_password),
+                    Input(type="hidden", name="action", value="auto_sync"),
+                    Button("Enable auto-sync", type="submit", cls="contrast"),
+                    hx_post=setup_sync,
+                    hx_target="#sync-panel",
+                    hx_swap="outerHTML",
+                ),
+                P(A("No thanks, back to home", href=index)),
+                id="sync-panel",
+            )
+        except Exception as e:
+            return _status_panel(f"Sync failed: {e}", "error")
+
+
+@rt
+def enable_sync(handle: str, app_password: str, octopus_url: str, sess):
+    """Legacy endpoint - redirect to new flow."""
+    return RedirectResponse(url=sync_panel.to(), status_code=303)
 
 
 @rt
@@ -312,7 +444,7 @@ def disable_sync(sess):
     
     return Article(
         Header(H3("Auto-sync disabled")),
-        P("Your publications will no longer be synced."),
+        P("Your publications will no longer be synced automatically."),
         P(A("Back to home", href=index)),
         id="sync-panel",
     )
