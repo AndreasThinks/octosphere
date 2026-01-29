@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from .atproto.client import AtprotoAuth, AtprotoClient
-from .octopus.client import OctopusClient, OctopusPublication
+from atproto.client import AtprotoAuth, AtprotoClient
+from octopus.client import OctopusClient, OctopusPublication
 
 
 @dataclass
