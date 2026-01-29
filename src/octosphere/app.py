@@ -3,7 +3,7 @@ import secrets
 from pathlib import Path
 
 from fasthtml.common import *
-from starlette.responses import RedirectResponse
+from starlette.responses import RedirectResponse, FileResponse
 from starlette.background import BackgroundTask
 
 from octosphere.atproto.client import AtprotoClient
@@ -29,8 +29,16 @@ except RuntimeError as exc:
 app, rt = fast_app(
     title="Octosphere",
     secret_key=settings.session_secret if settings else None,
-    static_path=str(STATIC_PATH),
 )
+
+
+# Explicit static file serving with absolute path (works on Railway)
+@rt("/static/{fname:path}")
+def static_files(fname: str):
+    fpath = STATIC_PATH / fname
+    if fpath.exists():
+        return FileResponse(fpath)
+    return Response("Not found", status_code=404)
 
 
 def _nav(profile: OrcidProfile | None = None):
