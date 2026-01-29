@@ -154,13 +154,20 @@ def sync_panel(sess):
         Header(H3("Sync LIVE publications")),
         Form(
             Fieldset(
-                Label("ATProto handle", Input(name="handle", required=True)),
-                Label("App password", Input(name="app_password", type="password", required=True)),
+                Label("ATProto handle", Input(id="handle", required=True)),
+                Label("App password", Input(id="app_password", type="password", required=True)),
             ),
-            Button("Sync all live publications", type="submit"),
+            Button("Sync all live publications", type="submit", cls="contrast"),
+            Div(
+                Span("Syncing publications...", aria_busy="true"),
+                id="loading",
+                cls="htmx-indicator",
+                style="display:none;",
+            ),
             hx_post=sync_now,
             hx_target="#sync-panel",
             hx_swap="outerHTML",
+            hx_indicator="#loading",
         ),
         P(A("Logout", href=logout)),
         id="sync-panel",
