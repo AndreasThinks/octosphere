@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timedelta
 
-from octosphere.database import db, decrypt_password
+from octosphere.database import decrypt_password, users, synced_publications
 from octosphere.atproto.client import AtprotoClient
 from octosphere.bridge import sync_publications
 from octosphere.octopus.client import OctopusClient
@@ -17,9 +17,6 @@ def get_sync_interval_days() -> int:
 
 def task_sync_user(orcid: str) -> None:
     """Sync publications for a single user (runs as background task)."""
-    users = db.t.users
-    synced = db.t.synced_publications
-    
     user = users[orcid]
     if not user or not user.get("active"):
         return
@@ -46,7 +43,7 @@ def task_sync_user(orcid: str) -> None:
         
         # Record synced publications
         for r in results:
-            synced.insert(
+            synced_publications.insert(
                 orcid=orcid,
                 octopus_pub_id=r.publication_id,
                 octopus_version_id=r.version_id,
@@ -66,7 +63,6 @@ def get_users_needing_sync() -> list[dict]:
     interval = get_sync_interval_days()
     cutoff = (datetime.utcnow() - timedelta(days=interval)).isoformat()
     
-    users = db.t.users
     return [
         u for u in users()
         if u.get("active") and (not u.get("last_sync") or u["last_sync"] < cutoff)

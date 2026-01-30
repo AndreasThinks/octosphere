@@ -60,11 +60,43 @@ class TestOctopusClient:
         assert result["id"] == "ver-123"
         assert "<p>" in result["content"]
 
-    def test_map_publication_with_nested_structure(self, client):
-        """Test mapping publication with nested publication/latestVersion."""
+    @responses.activate
+    def test_get_publication_chain(self, client):
+        """Test fetching publication with full version data."""
+        responses.add(
+            responses.GET,
+            "https://prod.api.octopus.ac/v1/publications/pub-123",
+            json={
+                "id": "pub-123",
+                "type": "HYPOTHESIS",
+                "versions": [
+                    {
+                        "id": "pub-123-v1",
+                        "title": "Test Publication",
+                        "content": "<p>Full content</p>",
+                        "isLatestLiveVersion": True,
+                    }
+                ],
+                "linkedTo": [],
+                "linkedFrom": [],
+            },
+            status=200,
+        )
+        
+        result = client.get_publication_chain("pub-123")
+        
+        assert result["id"] == "pub-123"
+        assert len(result["versions"]) == 1
+        assert result["versions"][0]["content"] == "<p>Full content</p>"
+
+    def test_map_publication_with_versions_array(self, client):
+        """Test mapping publication with versions array (actual API structure)."""
         item = {
-            "publication": {"id": "pub-1", "title": "Test"},
-            "latestVersion": {"id": "ver-1", "title": "Test v1"},
+            "id": "pub-1",
+            "type": "HYPOTHESIS",
+            "versions": [
+                {"id": "pub-1-v1", "title": "Test v1", "isLatestLiveVersion": True}
+            ],
             "linked": {
                 "linkedTo": [{"id": "pub-2"}],
                 "linkedFrom": [{"id": "pub-3"}],
@@ -75,7 +107,7 @@ class TestOctopusClient:
         
         assert isinstance(result, OctopusPublication)
         assert result.publication_id == "pub-1"
-        assert result.version_id == "ver-1"
+        assert result.version_id == "pub-1-v1"
         assert result.linked_to == ["pub-2"]
         assert result.linked_from == ["pub-3"]
 

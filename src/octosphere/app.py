@@ -8,7 +8,7 @@ from starlette.background import BackgroundTask
 
 from octosphere.atproto.client import AtprotoClient
 from octosphere.bridge import sync_publications
-from octosphere.database import db, encrypt_password
+from octosphere.database import db, encrypt_password, users, synced_publications
 from octosphere.octopus.client import OctopusClient
 from octosphere.orcid import OrcidClient, OrcidProfile
 from octosphere.settings import Settings
@@ -332,7 +332,6 @@ def sync_panel(sess):
         return _status_panel("Login with ORCID to continue.", "error")
     
     # Check if user already has auto-sync enabled
-    users = db.t.users
     existing = users[profile.orcid] if profile.orcid in [u["orcid"] for u in users()] else None
     
     if existing and existing.get("active"):
@@ -346,8 +345,7 @@ def sync_panel(sess):
             except Exception:
                 pass
             # Count already synced
-            synced = db.t.synced_publications
-            synced_count = len([s for s in synced() if s.get("orcid") == profile.orcid])
+            synced_count = len([s for s in synced_publications() if s.get("orcid") == profile.orcid])
         
         return Article(
             Header(H3("Auto-sync enabled")),
@@ -640,7 +638,6 @@ def setup_sync(action: str, sess, handle: str | None = None, app_password: str |
     except Exception:
         pub_count = 0
     
-    users = db.t.users
     encrypted_pw = encrypt_password(bsky_password)
     
     if action == "auto_sync":
@@ -688,9 +685,8 @@ def setup_sync(action: str, sess, handle: str | None = None, app_password: str |
             results = sync_publications(octopus, atproto, auth, octopus_user_id)
             
             # Record synced publications
-            synced = db.t.synced_publications
             for r in results:
-                synced.insert(
+                synced_publications.insert(
                     orcid=profile.orcid,
                     octopus_pub_id=r.publication_id,
                     octopus_version_id=r.version_id,
@@ -736,7 +732,6 @@ def disable_sync(sess):
     if not profile:
         return _status_panel("Login with ORCID first.", "error")
     
-    users = db.t.users
     users.update({"orcid": profile.orcid, "active": 0})
     
     return Article(
