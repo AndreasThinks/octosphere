@@ -189,15 +189,17 @@ def index(sess):
         Section(
             H2("What is Octosphere?"),
             P(
-                "Octosphere bridges the gap between academic publishing and social media. "
+                "Octosphere bridges the gap between academic publishing and the social web. "
                 "It automatically syncs your research publications from ",
-                A("Octopus LIVE", href="https://www.octopus.ac"),
-                " to ",
+                A("Octopus", href="https://www.octopus.ac"),
+                " to the ",
+                A("AT Protocol", href="https://atproto.com"),
+                " (the atmosphere) — an open, decentralized network for social apps like ",
                 A("Bluesky", href="https://bsky.app"),
-                ", an open social network built on the AT Protocol."
+                "."
             ),
             P(
-                "By sharing your work on social platforms, you can reach broader audiences, "
+                "By sharing your work on the atmosphere, you can reach broader audiences, "
                 "engage with the public, and increase the visibility of your research beyond "
                 "traditional academic channels."
             ),
@@ -211,11 +213,15 @@ def index(sess):
                     " — Authenticate using your researcher identifier.",
                 ),
                 Li(
-                    Strong("Connect your Octopus profile"),
-                    " — Link your Octopus LIVE author page.",
+                    Strong("Connect to the atmosphere"),
+                    " — Sign in with your Bluesky account (or any AT Protocol app).",
                 ),
                 Li(
-                    Strong("Sync to Bluesky"),
+                    Strong("Link your Octopus profile"),
+                    " — Connect your Octopus author page.",
+                ),
+                Li(
+                    Strong("Sync your publications"),
                     " — Choose one-time sync or enable automatic syncing of future publications.",
                 ),
             ),
@@ -392,7 +398,7 @@ def sync_panel(sess):
     return Article(
         Header(H3("Step 2: Connect your Octopus profile")),
         P(f"Connected to Bluesky as @{bsky_handle}"),
-        P("Now, let's find your Octopus LIVE publications."),
+        P("Now, let's find your Octopus publications."),
         Form(
             Fieldset(
                 Label(
@@ -448,7 +454,7 @@ def validate_bluesky(handle: str, app_password: str, sess):
     return Article(
         Header(H3("Step 2: Connect your Octopus profile")),
         P(f"Connected to Bluesky as @{handle}"),
-        P("Now, let's find your Octopus LIVE publications."),
+        P("Now, let's find your Octopus publications."),
         Form(
             Fieldset(
                 Label(
@@ -652,7 +658,7 @@ def setup_sync(action: str, sess, handle: str | None = None, app_password: str |
             message = P(f"Syncing {pub_count} publications in the background...")
             background = BackgroundTask(task_sync_user, orcid=profile.orcid)
         else:
-            message = P("We'll sync your publications when you publish on Octopus LIVE.")
+            message = P("We'll sync your publications when you publish on Octopus.")
             background = None
         
         return Response(
@@ -671,7 +677,7 @@ def setup_sync(action: str, sess, handle: str | None = None, app_password: str |
         if pub_count == 0:
             return Article(
                 Header(H3("Nothing to sync")),
-                P("You don't have any publications on Octopus LIVE yet."),
+                P("You don't have any publications on Octopus yet."),
                 P("Come back after you've published!"),
                 P(A("Back to home", href="/")),
                 id="sync-panel",

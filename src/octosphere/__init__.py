@@ -1,2 +1,2 @@
-"""Octosphere - Octopus LIVE to AT Proto bridge."""
+"""Octosphere - Octopus to AT Protocol bridge."""
 __version__ = "0.1.0"
