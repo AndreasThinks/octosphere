@@ -95,7 +95,15 @@ def sync_publications(
     publications = octopus.get_user_publications(user_id)
     for item in publications:
         mapped = octopus.map_publication(item)
-        version_content = octopus.get_version_content(mapped.version_id)
+        # Use get_publication_chain which returns full version data including content
+        # (the /publication-versions endpoint returns 403 Forbidden)
+        pub_data = octopus.get_publication_chain(mapped.publication_id)
+        # Find the matching version content from the publication data
+        versions = pub_data.get("versions", [])
+        version_content = next(
+            (v for v in versions if str(v.get("id")) == mapped.version_id),
+            versions[0] if versions else {}
+        )
         record = build_record(octopus, mapped, version_content)
         created = atproto.create_publication_record(auth, record)
         results.append(

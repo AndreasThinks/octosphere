@@ -313,6 +313,9 @@ def logout(sess):
     sess.pop("orcid", None)
     sess.pop("orcid_state", None)
     sess.pop("octopus_user_id", None)
+    sess.pop("bsky_handle", None)
+    sess.pop("bsky_app_password", None)
+    sess.pop("bsky_authenticated", None)
     return RedirectResponse(url="/", status_code=303)
 
 
@@ -355,10 +358,41 @@ def sync_panel(sess):
             id="sync-panel",
         )
     
-    # Step 1: Ask for Octopus author URL
+    # Step 1: Check if Bluesky is connected (stored in session)
+    bsky_handle = sess.get("bsky_handle")
+    bsky_authenticated = sess.get("bsky_authenticated")
+    
+    if not bsky_authenticated:
+        # Step 1: Sign in with Bluesky/AT Proto first
+        return Article(
+            Header(H3("Step 1: Sign in with Bluesky")),
+            P("First, connect your Bluesky account to sync your publications."),
+            Form(
+                Fieldset(
+                    Label("Bluesky handle", Input(id="handle", placeholder="user.bsky.social", required=True)),
+                    Label("App password", Input(id="app_password", type="password", required=True)),
+                    Small("Create an app password at bsky.app Settings → App Passwords"),
+                ),
+                Button("Sign in with Bluesky", type="submit", cls="contrast"),
+                Div(
+                    Span("Connecting to Bluesky...", aria_busy="true"),
+                    id="loading",
+                    cls="htmx-indicator",
+                    style="display:none;",
+                ),
+                hx_post="/validate_bluesky",
+                hx_target="#sync-panel",
+                hx_swap="outerHTML",
+                hx_indicator="#loading",
+            ),
+            id="sync-panel",
+        )
+    
+    # Step 2: Ask for Octopus author URL (only shown after Bluesky is connected)
     return Article(
-        Header(H3("Step 1: Connect your Octopus profile")),
-        P("First, let's find your Octopus LIVE publications."),
+        Header(H3("Step 2: Connect your Octopus profile")),
+        P(f"Connected to Bluesky as @{bsky_handle}"),
+        P("Now, let's find your Octopus LIVE publications."),
         Form(
             Fieldset(
                 Label(
@@ -386,16 +420,111 @@ def sync_panel(sess):
             hx_swap="outerHTML",
             hx_indicator="#loading",
         ),
+        P(A("Disconnect Bluesky", href="/disconnect_bluesky", hx_get="/disconnect_bluesky", hx_target="#sync-panel", cls="secondary")),
+        id="sync-panel",
+    )
+
+
+@rt
+def validate_bluesky(handle: str, app_password: str, sess):
+    """Step 1: Validate Bluesky credentials and store in session."""
+    profile = _require_login(sess)
+    if not profile:
+        return _status_panel("Login with ORCID first.", "error")
+    
+    # Validate Bluesky credentials
+    atproto = _atproto_client()
+    try:
+        auth = atproto.create_session(handle, app_password)
+    except Exception as e:
+        return _status_panel(f"Invalid Bluesky credentials: {e}", "error")
+    
+    # Store Bluesky connection in session
+    sess["bsky_handle"] = handle
+    sess["bsky_app_password"] = app_password
+    sess["bsky_authenticated"] = True
+    
+    # Return the sync panel which will now show Step 2 (Octopus connection)
+    return Article(
+        Header(H3("Step 2: Connect your Octopus profile")),
+        P(f"Connected to Bluesky as @{handle}"),
+        P("Now, let's find your Octopus LIVE publications."),
+        Form(
+            Fieldset(
+                Label(
+                    "Octopus author page URL",
+                    Input(
+                        id="octopus_url",
+                        placeholder="https://www.octopus.ac/authors/your-id",
+                        required=True,
+                    ),
+                ),
+                Small(
+                    "Find this at octopus.ac by clicking your profile. "
+                    "Example: https://www.octopus.ac/authors/cl5smny4a000009ieqml45bhz"
+                ),
+            ),
+            Button("Find my publications", type="submit", cls="contrast"),
+            Div(
+                Span("Looking up publications...", aria_busy="true"),
+                id="loading",
+                cls="htmx-indicator",
+                style="display:none;",
+            ),
+            hx_post="/validate_octopus",
+            hx_target="#sync-panel",
+            hx_swap="outerHTML",
+            hx_indicator="#loading",
+        ),
+        P(A("Disconnect Bluesky", href="/disconnect_bluesky", hx_get="/disconnect_bluesky", hx_target="#sync-panel", cls="secondary")),
+        id="sync-panel",
+    )
+
+
+@rt
+def disconnect_bluesky(sess):
+    """Disconnect Bluesky and return to Step 1."""
+    sess.pop("bsky_handle", None)
+    sess.pop("bsky_app_password", None)
+    sess.pop("bsky_authenticated", None)
+    
+    # Return the Bluesky login form (Step 1)
+    return Article(
+        Header(H3("Step 1: Sign in with Bluesky")),
+        P("First, connect your Bluesky account to sync your publications."),
+        Form(
+            Fieldset(
+                Label("Bluesky handle", Input(id="handle", placeholder="user.bsky.social", required=True)),
+                Label("App password", Input(id="app_password", type="password", required=True)),
+                Small("Create an app password at bsky.app Settings → App Passwords"),
+            ),
+            Button("Sign in with Bluesky", type="submit", cls="contrast"),
+            Div(
+                Span("Connecting to Bluesky...", aria_busy="true"),
+                id="loading",
+                cls="htmx-indicator",
+                style="display:none;",
+            ),
+            hx_post="/validate_bluesky",
+            hx_target="#sync-panel",
+            hx_swap="outerHTML",
+            hx_indicator="#loading",
+        ),
         id="sync-panel",
     )
 
 
 @rt
 def validate_octopus(octopus_url: str, sess):
-    """Step 1 result: Validate Octopus URL and show publications."""
+    """Step 2 result: Validate Octopus URL and show publications with sync options."""
     profile = _require_login(sess)
     if not profile:
         return _status_panel("Login with ORCID first.", "error")
+    
+    # Check that Bluesky is connected
+    bsky_handle = sess.get("bsky_handle")
+    if not sess.get("bsky_authenticated"):
+        return _status_panel("Please connect to Bluesky first.", "error")
     
     # Extract Octopus user ID from URL
     octopus_user_id = OctopusClient.extract_user_id_from_url(octopus_url)
@@ -441,19 +570,14 @@ def validate_octopus(octopus_url: str, sess):
     if pub_count > 5:
         pub_items.append(Li(f"...and {pub_count - 5} more"))
     
-    # Step 2: Show publications and ask for Bluesky credentials
+    # Step 3: Show publications and sync options (using stored Bluesky credentials)
     return Article(
         Header(H3(f"Found {pub_count} publications")),
+        P(f"Will sync to @{bsky_handle}"),
         Ul(*pub_items) if pub_items else P("No publications yet - you can still set up sync for future publications."),
         Hr(),
-        H4("Step 2: Connect to Bluesky"),
-        P("Enter your Bluesky credentials to sync these publications:"),
+        H4("Step 3: Choose sync options"),
         Form(
-            Fieldset(
-                Label("Bluesky handle", Input(id="handle", placeholder="user.bsky.social", required=True)),
-                Label("App password", Input(id="app_password", type="password", required=True)),
-                Small("Create an app password at bsky.app Settings → App Passwords"),
-            ),
             Div(
                 Button("Sync now (one-time)", type="submit", name="action", value="sync_once", cls="secondary"),
                 Button("Enable auto-sync", type="submit", name="action", value="auto_sync", cls="contrast"),
@@ -478,7 +602,7 @@ def validate_octopus(octopus_url: str, sess):
 
 
 @rt
-def setup_sync(handle: str, app_password: str, action: str, sess):
+def setup_sync(action: str, sess, handle: str | None = None, app_password: str | None = None):
     """Handle both one-time sync and auto-sync setup."""
     profile = _require_login(sess)
     if not profile:
@@ -488,10 +612,17 @@ def setup_sync(handle: str, app_password: str, action: str, sess):
     if not octopus_user_id:
         return _status_panel("Session expired. Please start over.", "error")
     
+    # Get Bluesky credentials from session (or from form for backward compatibility)
+    bsky_handle = handle or sess.get("bsky_handle")
+    bsky_password = app_password or sess.get("bsky_app_password")
+    
+    if not bsky_handle or not bsky_password:
+        return _status_panel("Bluesky credentials not found. Please start over.", "error")
+    
     # Validate Bluesky credentials
     atproto = _atproto_client()
     try:
-        auth = atproto.create_session(handle, app_password)
+        auth = atproto.create_session(bsky_handle, bsky_password)
     except Exception as e:
         return _status_panel(f"Invalid Bluesky credentials: {e}", "error")
     
@@ -504,13 +635,13 @@ def setup_sync(handle: str, app_password: str, action: str, sess):
         pub_count = 0
     
     users = db.t.users
-    encrypted_pw = encrypt_password(app_password)
+    encrypted_pw = encrypt_password(bsky_password)
     
     if action == "auto_sync":
         # Store credentials for ongoing sync
         users.insert(
             orcid=profile.orcid,
-            bsky_handle=handle,
+            bsky_handle=bsky_handle,
             encrypted_app_password=encrypted_pw,
             octopus_user_id=octopus_user_id,
             active=1,
@@ -527,7 +658,7 @@ def setup_sync(handle: str, app_password: str, action: str, sess):
         return Response(
             content=Article(
                 Header(H3("Auto-sync enabled")),
-                P(f"Your publications will be synced to @{handle}"),
+                P(f"Your publications will be synced to @{bsky_handle}"),
                 message,
                 P(A("Back to home", href="/")),
                 id="sync-panel",
@@ -570,7 +701,7 @@ def setup_sync(handle: str, app_password: str, action: str, sess):
             
             return Article(
                 Header(H3(f"Synced {len(results)} publications")),
-                P(f"Your publications are now on @{handle}"),
+                P(f"Your publications are now on @{bsky_handle}"),
                 Table(
                     Thead(Tr(Th("Publication"), Th("Link"))),
                     Tbody(*rows),
@@ -578,8 +709,8 @@ def setup_sync(handle: str, app_password: str, action: str, sess):
                 Hr(),
                 P("Want to automatically sync future publications?"),
                 Form(
-                    Input(type="hidden", name="handle", value=handle),
-                    Input(type="hidden", name="app_password", value=app_password),
+                    Input(type="hidden", name="handle", value=bsky_handle),
+                    Input(type="hidden", name="app_password", value=bsky_password),
                     Input(type="hidden", name="action", value="auto_sync"),
                     Button("Enable auto-sync", type="submit", cls="contrast"),
                     hx_post="/setup_sync",
