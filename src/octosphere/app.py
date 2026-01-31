@@ -396,6 +396,90 @@ async def jetstream_consumer():
             await asyncio.sleep(5)
 
 
+def _fetch_historic_publications(limit: int = 50) -> list[dict]:
+    """Fetch historic publications from all registered users.
+    
+    Queries the users table to get DIDs, then fetches their publication records
+    via the public AT Protocol API.
+    
+    Returns:
+        List of dicts with: did, handle, uri, record, createdAt
+    """
+    atproto = _atproto_client()
+    all_publications = []
+    
+    # Get all active users with their handles and resolve to DIDs
+    for user in users():
+        if not user.get("active"):
+            continue
+        
+        handle = user.get("bsky_handle")
+        if not handle:
+            continue
+        
+        # Resolve handle to DID
+        try:
+            resolver = atproto._resolver
+            did = resolver.handle.resolve(handle)
+            if not did:
+                continue
+        except Exception:
+            continue
+        
+        # Fetch their publication records (public API, no auth needed)
+        try:
+            records = atproto.list_records_public(did, limit=limit)
+            for r in records:
+                value = r.get("value", {})
+                all_publications.append({
+                    "did": did,
+                    "handle": handle,
+                    "uri": r.get("uri"),
+                    "record": value,
+                    "createdAt": value.get("createdAt") or "",
+                })
+        except Exception as e:
+            print(f"Error fetching records for {handle}: {e}")
+            continue
+    
+    # Sort by createdAt descending (newest first)
+    all_publications.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
+    
+    return all_publications[:limit]
+
+
+@rt("/feed/history")
+def feed_history():
+    """Fetch and render historic publications."""
+    publications = _fetch_historic_publications(limit=30)
+    
+    if not publications:
+        return Div(
+            P(
+                "No publications yet. Be the first to ",
+                A("sync your research", href="/login"),
+                "!",
+                style="text-align: center; color: var(--pico-muted-color); padding: 2rem 0;",
+            ),
+            id="history-container",
+        )
+    
+    cards = [
+        PublicationCard(
+            p["record"],
+            p["did"],
+            handle=p.get("handle"),
+            timestamp=p.get("createdAt"),
+        )
+        for p in publications
+    ]
+    
+    return Div(
+        *cards,
+        id="history-container",
+    )
+
+
 @rt("/feed/stream")
 async def feed_stream():
     """SSE endpoint for live feed."""
@@ -420,25 +504,43 @@ def feed(sess):
                 style="background: var(--pico-secondary-background); padding: 0.5rem 1rem; border-radius: var(--pico-border-radius); text-align: center; margin-bottom: 1rem;",
             ),
             Header(
-                H1("Live Feed"),
+                H1("Research Feed"),
                 P(
-                    "Real-time stream of research publications",
+                    "Recent and live publications from the atmosphere",
                     style="font-size: 1.25rem; color: var(--pico-muted-color);",
                 ),
                 style="text-align: center; padding: 2rem 0;",
             ),
-            # SSE container - new publications appear at the top
+            # Live streaming container - new publications appear at the top (above history)
             Div(
-                P(
-                    Span(aria_busy="true", style="margin-right: 0.5rem;"),
-                    "Waiting for new publications...",
-                    style="text-align: center; color: var(--pico-muted-color);",
-                ),
-                id="feed-container",
+                # This div receives live SSE updates
+                id="live-container",
                 hx_ext="sse",
                 sse_connect="/feed/stream",
                 hx_swap="afterbegin",
                 sse_swap="message",
+            ),
+            # Separator between live and historic
+            Div(
+                Hr(),
+                P(
+                    Small("Recent publications"),
+                    style="text-align: center; color: var(--pico-muted-color); margin: 0.5rem 0;",
+                ),
+                id="separator",
+                style="display: none;",  # Hidden until we have both live and historic
+            ),
+            # Historic publications container - loaded via HTMX on page load
+            Div(
+                P(
+                    Span(aria_busy="true", style="margin-right: 0.5rem;"),
+                    "Loading recent publications...",
+                    style="text-align: center; color: var(--pico-muted-color);",
+                ),
+                id="history-container",
+                hx_get="/feed/history",
+                hx_trigger="load",
+                hx_swap="outerHTML",
             ),
             cls="container",
         ),

@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
+import httpx
 from atproto import Client, models
 from atproto_identity.resolver import IdResolver
 
@@ -232,3 +233,55 @@ class AtprotoClient:
             {"uri": r.uri, "cid": r.cid, "value": r.value}
             for r in response.records
         ]
+    
+    def list_records_public(
+        self,
+        did: str,
+        collection: str = OCTOSPHERE_PUBLICATION_NSID,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """List records in a repository collection without authentication.
+        
+        This method makes unauthenticated requests directly to the user's PDS,
+        which is allowed by the AT Protocol for public records.
+        
+        Args:
+            did: Repository DID (e.g., "did:plc:...")
+            collection: Collection NSID (defaults to social.octosphere.publication)
+            limit: Maximum records to return
+            
+        Returns:
+            List of record dicts with uri, cid, and value
+        """
+        # Resolve DID to find their PDS endpoint
+        try:
+            did_doc = self._resolver.did.resolve(did)
+            if did_doc and did_doc.pds_endpoint:
+                pds_url = did_doc.pds_endpoint.rstrip("/")
+            else:
+                pds_url = self.default_pds_url
+        except Exception:
+            pds_url = self.default_pds_url
+        
+        # Make unauthenticated request to com.atproto.repo.listRecords
+        url = f"{pds_url}/xrpc/com.atproto.repo.listRecords"
+        params = {
+            "repo": did,
+            "collection": collection,
+            "limit": limit,
+        }
+        
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                response = client.get(url, params=params)
+                response.raise_for_status()
+                data = response.json()
+                
+                return [
+                    {"uri": r["uri"], "cid": r["cid"], "value": r["value"]}
+                    for r in data.get("records", [])
+                ]
+        except Exception as e:
+            # Log error but return empty list rather than failing
+            print(f"Error listing records for {did}: {e}")
+            return []
