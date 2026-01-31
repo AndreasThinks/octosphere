@@ -176,20 +176,28 @@ class AtprotoClient:
         
         Args:
             auth: Authentication from login()
-            uri: AT URI of the record to delete
+            uri: AT URI of the record to delete (format: at://{did}/{collection}/{rkey})
         """
         if not self._client:
             raise RuntimeError("Not logged in. Call login() first.")
         
-        from atproto_core import AtUri
+        # Parse AT URI manually: at://{did}/{collection}/{rkey}
+        if not uri.startswith("at://"):
+            raise ValueError(f"Invalid AT URI: {uri}")
         
-        parsed = AtUri.from_str(uri)
+        parts = uri[5:].split("/")  # Remove "at://" prefix and split
+        if len(parts) < 3:
+            raise ValueError(f"Invalid AT URI format: {uri}")
+        
+        repo = parts[0]  # DID
+        collection = parts[1]  # Collection NSID
+        rkey = parts[2]  # Record key
         
         self._client.com.atproto.repo.delete_record(
             models.ComAtprotoRepoDeleteRecord.Data(
-                repo=parsed.host,  # DID
-                collection=parsed.collection,
-                rkey=parsed.rkey,
+                repo=repo,
+                collection=collection,
+                rkey=rkey,
             )
         )
     
