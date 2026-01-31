@@ -62,8 +62,8 @@ def task_sync_user(orcid: str) -> None:
                 at_uri=r.uri,
             )
         
-        # Update last sync time
-        users.update({"orcid": orcid, "last_sync": datetime.utcnow().isoformat()})
+        # Update last sync time (with Z suffix to indicate UTC)
+        users.update({"orcid": orcid, "last_sync": datetime.utcnow().isoformat() + "Z"})
         
         print(f"Synced {len(results)} new publications for {orcid}")
         

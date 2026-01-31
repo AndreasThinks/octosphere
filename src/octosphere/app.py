@@ -635,17 +635,134 @@ def sync_panel(sess):
             # Count already synced
             synced_count = len([s for s in synced_publications() if s.get("orcid") == profile.orcid])
         
-        return Article(
-            Header(H3("Auto-sync enabled")),
-            P(f"Your publications are being synced to @{existing['bsky_handle']}"),
-            P(f"Total publications: {pub_count}"),
-            P(f"Already synced: {synced_count}"),
-            P(f"Last sync: {existing.get('last_sync') or 'Never'}"),
-            Form(
-                Button("Disable auto-sync", type="submit", cls="secondary"),
-                hx_post="/disable_sync",
-                hx_target="#sync-panel",
-                hx_swap="outerHTML",
+        bsky_handle = existing.get("bsky_handle", "")
+        last_sync = existing.get("last_sync")
+        
+        # Format last sync time
+        if last_sync:
+            try:
+                dt = datetime.fromisoformat(last_sync.replace("Z", "+00:00"))
+                last_sync_display = dt.strftime("%b %d, %Y at %H:%M")
+            except Exception:
+                last_sync_display = last_sync
+        else:
+            last_sync_display = "Never"
+        
+        # Calculate sync progress percentage
+        sync_pct = int((synced_count / pub_count * 100)) if pub_count > 0 else 100
+        sync_complete = synced_count >= pub_count and pub_count > 0
+        
+        return Div(
+            # Status Card
+            Article(
+                # Header with status badge
+                Div(
+                    Span(
+                        I(cls="fa-solid fa-circle", style="font-size: 0.5rem; margin-right: 0.5rem; color: #22c55e;"),
+                        "Auto-sync Active",
+                        style="background: rgba(34, 197, 94, 0.1); color: #22c55e; padding: 0.25rem 0.75rem; border-radius: 1rem; font-size: 0.875rem; font-weight: 600;",
+                    ),
+                    style="margin-bottom: 1rem;",
+                ),
+                # Connections section
+                H4(
+                    I(cls="fa-solid fa-link", style="margin-right: 0.5rem; color: var(--pico-muted-color);"),
+                    "Connected Accounts",
+                ),
+                Div(
+                    Div(
+                        Strong("ORCID: "),
+                        A(
+                            profile.orcid,
+                            href=f"https://orcid.org/{profile.orcid}",
+                            target="_blank",
+                        ),
+                        style="margin-bottom: 0.5rem;",
+                    ),
+                    Div(
+                        Strong("Bluesky: "),
+                        A(
+                            f"@{bsky_handle}",
+                            href=f"https://bsky.app/profile/{bsky_handle}",
+                            target="_blank",
+                        ),
+                    ),
+                    style="margin-bottom: 1.5rem;",
+                ),
+            ),
+            # Sync Status Card
+            Article(
+                H4(
+                    I(cls="fa-solid fa-sync", style="margin-right: 0.5rem; color: var(--pico-muted-color);"),
+                    "Sync Status",
+                ),
+                # Progress bar
+                Div(
+                    Div(
+                        style=f"width: {sync_pct}%; background: var(--pico-primary); height: 100%; border-radius: 0.25rem;",
+                    ),
+                    style="background: var(--pico-muted-border-color); height: 0.5rem; border-radius: 0.25rem; margin-bottom: 0.5rem;",
+                ),
+                Div(
+                    Strong(f"{synced_count} of {pub_count} publications synced"),
+                    " ✓" if sync_complete else "",
+                    style="margin-bottom: 0.5rem;" + (" color: #22c55e;" if sync_complete else ""),
+                ),
+                Small(
+                    I(cls="fa-regular fa-clock", style="margin-right: 0.25rem;"),
+                    f"Last sync: {last_sync_display}",
+                    style="color: var(--pico-muted-color);",
+                ),
+            ),
+            # Actions Card
+            Article(
+                H4(
+                    I(cls="fa-solid fa-bolt", style="margin-right: 0.5rem; color: var(--pico-muted-color);"),
+                    "Actions",
+                ),
+                Div(
+                    Form(
+                        Button(
+                            I(cls="fa-solid fa-rotate", style="margin-right: 0.5rem;"),
+                            "Sync Now",
+                            type="submit",
+                            cls="contrast",
+                        ),
+                        Div(
+                            Span("Syncing...", aria_busy="true"),
+                            id="sync-loading",
+                            cls="htmx-indicator",
+                            style="display:none; margin-left: 0.5rem;",
+                        ),
+                        hx_post="/manual_sync",
+                        hx_target="#sync-panel",
+                        hx_swap="outerHTML",
+                        hx_indicator="#sync-loading",
+                        style="display: inline;",
+                    ),
+                    A(
+                        I(cls="fa-solid fa-arrow-up-right-from-square", style="margin-right: 0.5rem;"),
+                        "View on Bluesky",
+                        href=f"https://bsky.app/profile/{bsky_handle}",
+                        target="_blank",
+                        role="button",
+                        cls="outline",
+                        style="margin-left: 0.5rem;",
+                    ),
+                    style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;",
+                ),
+                Hr(),
+                Form(
+                    Button(
+                        I(cls="fa-solid fa-power-off", style="margin-right: 0.5rem;"),
+                        "Disable auto-sync",
+                        type="submit",
+                        cls="secondary outline",
+                    ),
+                    hx_post="/disable_sync",
+                    hx_target="#sync-panel",
+                    hx_swap="outerHTML",
+                ),
             ),
             id="sync-panel",
         )
@@ -1079,6 +1196,41 @@ def setup_sync(action: str, sess, handle: str | None = None, app_password: str |
             )
         except Exception as e:
             return _status_panel(f"Sync failed: {e}", "error")
+
+
+@rt
+def manual_sync(sess):
+    """Manually trigger a sync for the current user."""
+    profile = _require_login(sess)
+    if not profile:
+        return _status_panel("Login with ORCID first.", "error")
+    
+    # Get user data
+    existing = users[profile.orcid] if profile.orcid in [u["orcid"] for u in users()] else None
+    if not existing or not existing.get("active"):
+        return _status_panel("Auto-sync not enabled.", "error")
+    
+    # Trigger background sync
+    from octosphere.tasks import task_sync_user
+    task_sync_user(profile.orcid)
+    
+    # Update last_sync timestamp
+    users.update({
+        "orcid": profile.orcid,
+        "last_sync": datetime.utcnow().isoformat() + "Z",
+    })
+    
+    # Return to sync panel (it will refresh and show updated stats)
+    return Div(
+        Article(
+            Header(H3("✅ Sync Complete")),
+            P("Your publications have been synced."),
+            P(A("Refresh dashboard", href="/sync_panel", hx_get="/sync_panel", hx_target="#sync-panel")),
+            id="sync-panel",
+        ),
+        # Auto-refresh after 2 seconds
+        Script("setTimeout(() => htmx.ajax('GET', '/sync_panel', '#sync-panel'), 2000);"),
+    )
 
 
 @rt
