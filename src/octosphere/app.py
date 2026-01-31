@@ -539,7 +539,7 @@ def disconnect_bluesky(sess):
 
 @rt
 def validate_octopus(octopus_url: str, sess):
-    """Step 2 result: Validate Octopus URL and show publications with sync options."""
+    """Step 2 result: Validate Octopus URL and show publications with sync button."""
     profile = _require_login(sess)
     if not profile:
         return _status_panel("Login with ORCID first.", "error")
@@ -593,33 +593,64 @@ def validate_octopus(octopus_url: str, sess):
     if pub_count > 5:
         pub_items.append(Li(f"...and {pub_count - 5} more"))
     
-    # Step 3: Show publications and sync options (using stored Bluesky credentials)
+    # Step 3: Show publications and sync button
+    if pub_count == 0:
+        # No publications - skip to auto-sync setup
+        return Article(
+            Header(H3("No publications found")),
+            P(f"Connected to @{bsky_handle}"),
+            P("You don't have any publications on Octopus yet."),
+            P("You can enable auto-sync now, and we'll automatically sync your publications when you publish on Octopus."),
+            Hr(),
+            H4("Step 3: Enable auto-sync"),
+            Form(
+                Button("Enable auto-sync", type="submit", cls="contrast"),
+                Input(type="hidden", name="action", value="auto_sync"),
+                Div(
+                    Span("Setting up auto-sync...", aria_busy="true"),
+                    id="loading-sync",
+                    cls="htmx-indicator",
+                    style="display:none;",
+                ),
+                hx_post="/setup_sync",
+                hx_target="#sync-panel",
+                hx_swap="outerHTML",
+                hx_indicator="#loading-sync",
+            ),
+            P(A("Back", href="/sync_panel", hx_get="/sync_panel", hx_target="#sync-panel"), style="margin-top: 1rem;"),
+            id="sync-panel",
+        )
+    
     return Article(
         Header(H3(f"Found {pub_count} publications")),
-        P(f"Will sync to @{bsky_handle}"),
-        Ul(*pub_items) if pub_items else P("No publications yet - you can still set up sync for future publications."),
+        P(f"Ready to sync to @{bsky_handle}"),
+        Ul(*pub_items),
         Hr(),
-        H4("Step 3: Choose sync options"),
+        H4("Step 3: Sync your publications"),
+        P("Click below to sync your existing Octopus publications to the atmosphere."),
         Form(
+            Button("Sync Now", type="submit", cls="contrast", style="width: 100%;"),
+            Input(type="hidden", name="action", value="sync_once"),
             Div(
-                Button("Sync now (one-time)", type="submit", name="action", value="sync_once", cls="secondary"),
-                Button("Enable auto-sync", type="submit", name="action", value="auto_sync", cls="contrast"),
-                style="display: flex; gap: 1rem;",
-            ),
-            Div(
-                Span("Syncing...", aria_busy="true"),
-                id="loading2",
+                P(
+                    Span(aria_busy="true", style="margin-right: 0.5rem;"),
+                    "Syncing your publications to the atmosphere...",
+                    style="text-align: center; padding: 1rem 0;",
+                ),
+                P(
+                    Small("This may take a moment depending on how many publications you have."),
+                    style="text-align: center; color: var(--pico-muted-color);",
+                ),
+                id="loading-sync",
                 cls="htmx-indicator",
                 style="display:none;",
             ),
             hx_post="/setup_sync",
             hx_target="#sync-panel",
             hx_swap="outerHTML",
-            hx_indicator="#loading2",
+            hx_indicator="#loading-sync",
         ),
-        P(Small("One-time sync: Sync existing publications now, no future auto-sync.")),
-        P(Small("Auto-sync: Sync now and automatically sync new publications every 7 days.")),
-        P(A("Back", href="/sync_panel", hx_get="/sync_panel", hx_target="#sync-panel")),
+        P(A("Back", href="/sync_panel", hx_get="/sync_panel", hx_target="#sync-panel"), style="margin-top: 1rem;"),
         id="sync-panel",
     )
 
@@ -712,33 +743,62 @@ def setup_sync(action: str, sess, handle: str | None = None, app_password: str |
                     at_uri=r.uri,
                 )
             
+            # Build results table
             rows = [
                 Tr(
                     Td(r.publication_id[:12] + "..."),
-                    Td(A("View on Bluesky", href=r.uri.replace("at://", "https://bsky.app/profile/").replace("/com.octopus.publication/", "/post/") if r.uri else "#")),
+                    Td(A("View", href=r.uri.replace("at://", "https://bsky.app/profile/").replace("/social.octosphere.publication/", "/post/") if r.uri else "#", target="_blank")),
                 )
                 for r in results[:10]
             ]
             
+            # Step 4: Show success and prompt for auto-sync
             return Article(
-                Header(H3(f"Synced {len(results)} publications")),
-                P(f"Your publications are now on @{bsky_handle}"),
+                # Success header with checkmark
+                Header(
+                    H3("✅ Synced ", Strong(f"{len(results)}"), " publications!"),
+                    style="text-align: center;",
+                ),
+                P(
+                    f"Your research is now live on @{bsky_handle}",
+                    style="text-align: center; color: var(--pico-muted-color);",
+                ),
+                # Results table
                 Table(
-                    Thead(Tr(Th("Publication"), Th("Link"))),
+                    Thead(Tr(Th("Publication ID"), Th("Link"))),
                     Tbody(*rows),
                 ) if rows else None,
+                P(
+                    Small(f"Showing {min(len(results), 10)} of {len(results)} publications"),
+                    style="text-align: center;",
+                ) if len(results) > 10 else None,
                 Hr(),
-                P("Want to automatically sync future publications?"),
+                # Step 4: Auto-sync CTA
+                H4("Step 4: Keep your publications in sync"),
+                P(
+                    "Enable auto-sync to automatically publish future Octopus publications "
+                    "to the atmosphere. We'll check for new publications every 7 days."
+                ),
                 Form(
                     Input(type="hidden", name="handle", value=bsky_handle),
                     Input(type="hidden", name="app_password", value=bsky_password),
                     Input(type="hidden", name="action", value="auto_sync"),
-                    Button("Enable auto-sync", type="submit", cls="contrast"),
+                    Button("Enable auto-sync", type="submit", cls="contrast", style="width: 100%;"),
+                    Div(
+                        Span("Setting up auto-sync...", aria_busy="true"),
+                        id="loading-autosync",
+                        cls="htmx-indicator",
+                        style="display:none;",
+                    ),
                     hx_post="/setup_sync",
                     hx_target="#sync-panel",
                     hx_swap="outerHTML",
+                    hx_indicator="#loading-autosync",
                 ),
-                P(A("No thanks, back to home", href="/")),
+                P(
+                    A("No thanks, I'm done", href="/"),
+                    style="text-align: center; margin-top: 1rem;",
+                ),
                 id="sync-panel",
             )
         except Exception as e:

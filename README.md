@@ -1,6 +1,6 @@
 # Octosphere (Octopus → AT Proto bridge)
 
-This proof-of-concept service syncs **Octopus LIVE publications** to **AT Proto/Bluesky** using ORCID OAuth and AT Proto app passwords.
+This proof-of-concept service syncs **[Octopus](https://www.octopus.ac/) publications** to the **[ATProto](https://atproto.com/) network**.
 
 ## Contents
 
