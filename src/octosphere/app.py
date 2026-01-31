@@ -177,7 +177,19 @@ def run_migrations():
     db_path = os.getenv("DATABASE_PATH", "octosphere.db")
     fm_migrate(db_path, migrations_path)
 
+
+def log_db_status():
+    """Log database connection status and counts on startup."""
+    try:
+        user_count = len(list(users()))
+        pub_count = len(list(synced_publications()))
+        print(f"[Octosphere] Database connected: {user_count} users, {pub_count} synced publications")
+    except Exception as e:
+        print(f"[Octosphere] Database connection error: {e}")
+
+
 run_migrations()
+log_db_status()
 
 
 def _orcid_client() -> OrcidClient:
@@ -343,12 +355,19 @@ shutdown_event = signal_shutdown()
 
 
 def PublicationCard(record: dict, did: str, handle: str | None = None, timestamp: str | None = None):
-    """Render a publication as a social media-style card."""
-    title = record.get("title", "Untitled Publication")
-    description = record.get("description", "")
-    pub_type = record.get("publicationType", "")
-    octopus_id = record.get("octopusId", "")
-    octopus_url = record.get("octopusUrl", "")
+    """Render a publication as a social media-style card.
+    
+    Uses correct schema fields from social.octosphere.publication lexicon:
+    - contentText: publication text content (not "description")
+    - canonicalUrl: URL to Octopus publication (not "octopusUrl")
+    """
+    title = record.get("title") or "Untitled Publication"
+    # Use contentText from schema (fall back to contentHtml stripped, then empty)
+    content_text = record.get("contentText") or ""
+    pub_type = record.get("publicationType") or ""
+    octopus_id = record.get("octopusId") or ""
+    # Use canonicalUrl from schema (correct field name)
+    canonical_url = record.get("canonicalUrl") or ""
     
     # Build peer review URL: https://www.octopus.ac/create?for={octopusId}&type=PEER_REVIEW
     peer_review_url = f"https://www.octopus.ac/create?for={octopus_id}&type=PEER_REVIEW" if octopus_id else None
@@ -363,7 +382,10 @@ def PublicationCard(record: dict, did: str, handle: str | None = None, timestamp
             time_display = timestamp
     
     # Display handle or truncated DID
-    author_display = f"@{handle}" if handle else f"{did[:20]}..."
+    author_display = f"@{handle}" if handle else f"{did[:20]}..." if did else "Unknown"
+    
+    # Truncate content for display (show first 300 chars)
+    display_text = content_text[:300] + "..." if len(content_text) > 300 else content_text
     
     return Article(
         # Header with author and timestamp
@@ -378,21 +400,21 @@ def PublicationCard(record: dict, did: str, handle: str | None = None, timestamp
         # Main content
         H4(title, style="margin-bottom: 0.5rem;"),
         P(
-            description[:300] + "..." if len(description) > 300 else description,
+            display_text,
             style="color: var(--pico-muted-color); margin-bottom: 1rem;",
-        ) if description else None,
+        ) if display_text else None,
         # Footer with action links
         Footer(
             Div(
                 A(
                     I(cls="fa-solid fa-book-open", style="margin-right: 0.25rem;"),
                     "View on Octopus",
-                    href=octopus_url,
+                    href=canonical_url,
                     target="_blank",
                     role="button",
                     cls="outline",
                     style="font-size: 0.875rem; padding: 0.25rem 0.75rem;",
-                ) if octopus_url else None,
+                ) if canonical_url else None,
                 A(
                     I(cls="fa-solid fa-comments", style="margin-right: 0.25rem;"),
                     "Post a Peer Review",
