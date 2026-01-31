@@ -199,8 +199,15 @@ def run_migrations():
                 conn.execute("CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT)")
                 conn.execute("INSERT OR REPLACE INTO _meta (key, value) VALUES ('version', ?)", (str(current_version),))
                 conn.commit()
+                conn.close()
+                # IMPORTANT: Don't call run_migrations() on freshly enrolled DBs
+                # The DB already has the correct schema, we just marked it as managed
+                print(f"[Octosphere] Enrollment complete - skipping migrations (already at version {current_version})")
+                return
             
             conn.close()
+            # Database is already managed by fastmigrate - run any pending migrations
+            fm_migrate(Path(db_path), Path(migrations_path))
         except Exception as e:
             print(f"[Octosphere] Error checking database: {e}")
             raise
@@ -208,9 +215,8 @@ def run_migrations():
         # No database exists - create fresh versioned database
         print(f"[Octosphere] Creating new database at {db_path}")
         create_db(Path(db_path))
-    
-    # Apply any pending migrations
-    fm_migrate(Path(db_path), Path(migrations_path))
+        # Apply migrations to set up schema
+        fm_migrate(Path(db_path), Path(migrations_path))
 
 
 def log_db_status():
