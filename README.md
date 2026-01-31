@@ -1,5 +1,7 @@
 # Octosphere (Octopus → AT Proto bridge)
 
+> **Experimental** — Exploring what distributed science on AT Protocol could look like.
+
 This proof-of-concept service syncs **[Octopus](https://www.octopus.ac/) publications** to the **[ATProto](https://atproto.com/) network**.
 
 ## Contents

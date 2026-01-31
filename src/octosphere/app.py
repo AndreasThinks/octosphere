@@ -200,6 +200,11 @@ def index(sess):
     
     return _page(
         "Home",
+        # Experimental banner
+        Div(
+            Strong("Experimental"), " — Exploring what distributed science on AT Protocol could look like.",
+            style="background: var(--pico-secondary-background); padding: 0.5rem 1rem; border-radius: var(--pico-border-radius); text-align: center; margin-bottom: 1rem;",
+        ),
         # Hero section
         Header(
             H1("Octosphere"),
@@ -394,6 +399,11 @@ def feed(sess):
         Script(src="https://unpkg.com/htmx-ext-sse@2.2.3/sse.js"),
         _nav(profile),
         Main(
+            # Experimental banner
+            Div(
+                Strong("Experimental"), " — This feed shows publications synced as part of an AT Protocol experiment.",
+                style="background: var(--pico-secondary-background); padding: 0.5rem 1rem; border-radius: var(--pico-border-radius); text-align: center; margin-bottom: 1rem;",
+            ),
             Header(
                 H1("Live Feed"),
                 P(
