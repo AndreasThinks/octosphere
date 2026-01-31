@@ -171,10 +171,16 @@ def _page(title: str, *content, profile: OrcidProfile | None = None):
 
 # Run migrations on startup
 def run_migrations():
-    from fastmigrate.core import run_migrations as fm_migrate
-    import os
+    from fastmigrate import create_db, run_migrations as fm_migrate
+    
     migrations_path = os.getenv("MIGRATIONS_PATH", "migrations")
     db_path = os.getenv("DATABASE_PATH", "octosphere.db")
+    
+    # Create/verify there is a versioned database (adds _meta table if needed)
+    # This is required before run_migrations() will work
+    create_db(db_path)
+    
+    # Apply any pending migrations
     fm_migrate(db_path, migrations_path)
 
 
