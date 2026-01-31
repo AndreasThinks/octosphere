@@ -85,9 +85,10 @@ def lexicon_files(fname: str):
 def _orcid_button(text: str = "Sign in with ORCID", href: str = "/login", compact: bool = False):
     """Render an ORCID-branded sign-in button."""
     # ORCID iD icon SVG (inline, white icon on green background)
+    # Using Octopus's ORCID green color: #437405
     icon_svg = NotStr("""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" style="height: 1.25rem; width: 1.25rem; flex-shrink: 0;">
       <circle cx="128" cy="128" r="128" fill="#fff"/>
-      <g fill="#A6CE39">
+      <g fill="#437405">
         <path d="M86.3 186.2H70.9V79.1h15.4v107.1z"/>
         <path d="M108.9 79.1h41.6c39.6 0 57 28.3 57 53.6 0 27.5-21.5 53.6-56.8 53.6h-41.8V79.1zm15.4 93.3h24.5c34.9 0 42.9-26.5 42.9-39.7 0-21.5-13.7-39.7-43-39.7h-24.4v79.4z"/>
         <ellipse cx="78.6" cy="58.7" rx="9.4" ry="9.4"/>
@@ -95,7 +96,7 @@ def _orcid_button(text: str = "Sign in with ORCID", href: str = "/login", compac
     </svg>""")
     
     button_style = (
-        "background-color: #A6CE39; "
+        "background-color: #437405; "  # Darker ORCID green matching Octopus
         "color: white; "
         "border: none; "
         "border-radius: 0.375rem; "
@@ -108,6 +109,7 @@ def _orcid_button(text: str = "Sign in with ORCID", href: str = "/login", compac
         f"font-size: {'0.875rem' if compact else '1rem'}; "
         "cursor: pointer; "
         "transition: filter 0.2s; "
+        "white-space: nowrap; "  # Prevent text wrapping
     )
     
     return A(
@@ -129,7 +131,11 @@ def _nav(profile: OrcidProfile | None = None):
         nav_items.append(Li(A("Dashboard", href="/dashboard")))
         nav_items.append(Li(A("Sign out", href="/logout")))
     else:
-        nav_items.append(Li(_orcid_button(text="Sign in", compact=True)))
+        # Wrap ORCID button in a styled Li with proper alignment
+        nav_items.append(Li(
+            _orcid_button(text="Sign in", compact=True),
+            style="display: flex; align-items: center;",
+        ))
     
     return Nav(
         Ul(Li(A(
