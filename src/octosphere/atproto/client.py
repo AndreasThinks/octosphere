@@ -140,6 +140,7 @@ class AtprotoClient:
         auth: AtprotoAuth,
         record: dict[str, Any],
         repo: Optional[str] = None,
+        rkey: Optional[str] = None,
     ) -> CreateRecordResult:
         """Create an Octopus publication record in the user's repository.
         
@@ -147,6 +148,9 @@ class AtprotoClient:
             auth: Authentication from login()
             record: Record data (camelCase keys as per lexicon)
             repo: Repository DID (defaults to auth.did)
+            rkey: Record key (optional). If provided, uses a deterministic key
+                  which makes the operation idempotent - re-creating with the same
+                  rkey will update the existing record rather than create a duplicate.
             
         Returns:
             CreateRecordResult with URI and CID
@@ -160,6 +164,7 @@ class AtprotoClient:
                 repo=repo or auth.did,
                 collection=OCTOSPHERE_PUBLICATION_NSID,
                 record=record,
+                rkey=rkey,  # Deterministic key for idempotency
             )
         )
         

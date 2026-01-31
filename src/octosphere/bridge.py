@@ -90,11 +90,33 @@ def sync_publications(
     atproto: AtprotoClient,
     auth: AtprotoAuth,
     user_id: str,
+    already_synced: set[tuple[str, str]] | None = None,
 ) -> list[SyncResult]:
+    """Sync Octopus publications to AT Protocol.
+    
+    Args:
+        octopus: Octopus API client
+        atproto: AT Protocol client
+        auth: AT Protocol authentication
+        user_id: Octopus user ID
+        already_synced: Set of (publication_id, version_id) tuples that have already been synced.
+                       If provided, these will be skipped to prevent duplicates.
+    
+    Returns:
+        List of SyncResult for newly synced publications
+    """
     results: list[SyncResult] = []
+    already_synced = already_synced or set()
+    
     publications = octopus.get_user_publications(user_id)
     for item in publications:
         mapped = octopus.map_publication(item)
+        
+        # Skip if already synced (duplicate prevention)
+        if (mapped.publication_id, mapped.version_id) in already_synced:
+            print(f"Skipping already synced: {mapped.publication_id}/{mapped.version_id}")
+            continue
+        
         # Use get_publication_chain which returns full version data including content
         # (the /publication-versions endpoint returns 403 Forbidden)
         pub_data = octopus.get_publication_chain(mapped.publication_id)
@@ -105,7 +127,11 @@ def sync_publications(
             versions[0] if versions else {}
         )
         record = build_record(octopus, mapped, version_content)
-        created = atproto.create_publication_record(auth, record)
+        
+        # Use deterministic rkey based on publication_id for idempotency
+        # This ensures that even if we accidentally sync twice, it updates rather than duplicates
+        rkey = f"octopus-{mapped.publication_id}"
+        created = atproto.create_publication_record(auth, record, rkey=rkey)
         results.append(
             SyncResult(
                 publication_id=mapped.publication_id,

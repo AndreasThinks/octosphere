@@ -1002,7 +1002,13 @@ def setup_sync(action: str, sess, handle: str | None = None, app_password: str |
         
         # Sync publications synchronously and show results
         try:
-            results = sync_publications(octopus, atproto, auth, octopus_user_id)
+            # Get already synced publications to prevent duplicates
+            already_synced = {
+                (s.get("octopus_pub_id"), s.get("octopus_version_id"))
+                for s in synced_publications()
+                if s.get("orcid") == profile.orcid
+            }
+            results = sync_publications(octopus, atproto, auth, octopus_user_id, already_synced=already_synced)
             
             # Record synced publications
             for r in results:

@@ -15,6 +15,15 @@ def get_sync_interval_days() -> int:
     return int(os.getenv("SYNC_INTERVAL_DAYS", "7"))
 
 
+def get_already_synced(orcid: str) -> set[tuple[str, str]]:
+    """Get set of (publication_id, version_id) tuples already synced for a user."""
+    return {
+        (s.get("octopus_pub_id"), s.get("octopus_version_id"))
+        for s in synced_publications()
+        if s.get("orcid") == orcid
+    }
+
+
 def task_sync_user(orcid: str) -> None:
     """Sync publications for a single user (runs as background task)."""
     user = users[orcid]
@@ -38,8 +47,11 @@ def task_sync_user(orcid: str) -> None:
         atproto = AtprotoClient(default_pds_url=os.getenv("ATPROTO_PDS_URL"))
         auth = atproto.create_session(user["bsky_handle"], password)
         
+        # Get already synced publications to prevent duplicates
+        already_synced = get_already_synced(orcid)
+        
         # Use octopus_user_id (internal ID) not orcid
-        results = sync_publications(octopus, atproto, auth, octopus_user_id)
+        results = sync_publications(octopus, atproto, auth, octopus_user_id, already_synced=already_synced)
         
         # Record synced publications
         for r in results:
@@ -52,6 +64,8 @@ def task_sync_user(orcid: str) -> None:
         
         # Update last sync time
         users.update({"orcid": orcid, "last_sync": datetime.utcnow().isoformat()})
+        
+        print(f"Synced {len(results)} new publications for {orcid}")
         
     except Exception as e:
         # Log error but don't crash - this is a background task
