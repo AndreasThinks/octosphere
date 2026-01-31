@@ -171,14 +171,34 @@ def _page(title: str, *content, profile: OrcidProfile | None = None):
 
 # Run migrations on startup
 def run_migrations():
-    from fastmigrate import create_db, run_migrations as fm_migrate
+    from pathlib import Path
+    from fastmigrate import create_db, run_migrations as fm_migrate, enroll_db
+    import sqlite3
     
     migrations_path = os.getenv("MIGRATIONS_PATH", "migrations")
     db_path = os.getenv("DATABASE_PATH", "octosphere.db")
     
-    # Create/verify there is a versioned database (adds _meta table if needed)
-    # This is required before run_migrations() will work
-    create_db(db_path)
+    # Check if database exists and needs enrollment vs creation
+    db_file = Path(db_path)
+    if db_file.exists():
+        # Database exists - check if it has _meta table (is managed by fastmigrate)
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='_meta'")
+            has_meta = cursor.fetchone() is not None
+            conn.close()
+            
+            if not has_meta:
+                # Existing database without _meta - needs enrollment
+                print(f"[Octosphere] Enrolling existing database at {db_path}")
+                enroll_db(db_path, Path(migrations_path))
+        except Exception as e:
+            print(f"[Octosphere] Error checking database: {e}")
+            raise
+    else:
+        # No database exists - create fresh versioned database
+        print(f"[Octosphere] Creating new database at {db_path}")
+        create_db(db_path)
     
     # Apply any pending migrations
     fm_migrate(db_path, migrations_path)
