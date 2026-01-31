@@ -20,9 +20,24 @@ from octosphere.settings import Settings
 from octosphere.tasks import task_sync_user
 
 
-# Get absolute path to static folder (relative to project root)
-STATIC_PATH = Path(__file__).parent.parent.parent / "static"
-LEXICON_PATH = Path(__file__).parent.parent.parent / "lexicon"
+import os
+
+# Get static/lexicon paths - try CWD first (works on Railway), then fall back to __file__-relative
+def _find_path(name: str) -> Path:
+    """Find a path, trying CWD first then __file__-relative."""
+    # Try current working directory (works on Railway when run from project root)
+    cwd_path = Path.cwd() / name
+    if cwd_path.exists():
+        return cwd_path
+    # Try relative to __file__ (works in development)
+    file_path = Path(__file__).parent.parent.parent / name
+    if file_path.exists():
+        return file_path
+    # Fall back to CWD path even if it doesn't exist (will return 404)
+    return cwd_path
+
+STATIC_PATH = _find_path("static")
+LEXICON_PATH = _find_path("lexicon")
 
 settings: Settings | None
 settings_error: str | None = None
@@ -747,16 +762,17 @@ def validate_octopus(octopus_url: str, sess):
     
     # Step 3: Show publications and sync button
     if pub_count == 0:
-        # No publications - skip to auto-sync setup
+        # No publications - go straight to auto-sync setup
         return Article(
-            Header(H3("No publications found")),
+            Header(H3("Set up auto-sync")),
             P(f"Connected to @{bsky_handle}"),
-            P("You don't have any publications on Octopus yet."),
-            P("You can enable auto-sync now, and we'll automatically sync your publications when you publish on Octopus."),
-            Hr(),
-            H4("Step 3: Enable auto-sync"),
+            P(
+                "You don't have any Octopus publications yet, but that's okay! "
+                "Enable auto-sync now and we'll automatically publish your research "
+                "to the atmosphere as soon as you publish on Octopus."
+            ),
             Form(
-                Button("Enable auto-sync", type="submit", cls="contrast"),
+                Button("Enable auto-sync", type="submit", cls="contrast", style="width: 100%;"),
                 Input(type="hidden", name="action", value="auto_sync"),
                 Div(
                     Span("Setting up auto-sync...", aria_busy="true"),
@@ -899,7 +915,7 @@ def setup_sync(action: str, sess, handle: str | None = None, app_password: str |
             rows = [
                 Tr(
                     Td(r.publication_id[:12] + "..."),
-                    Td(A("View", href=r.uri.replace("at://", "https://bsky.app/profile/").replace("/social.octosphere.publication/", "/post/") if r.uri else "#", target="_blank")),
+                    Td(A("View on pdsls", href=f"https://pdsls.dev/{r.uri}" if r.uri else "#", target="_blank")),
                 )
                 for r in results[:10]
             ]
