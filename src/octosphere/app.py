@@ -1,12 +1,17 @@
 """FastHTML UI for Octosphere bridge."""
+import asyncio
+import json
 import secrets
 from pathlib import Path
+from datetime import datetime
 
+import websockets
 from fasthtml.common import *
 from starlette.responses import RedirectResponse, FileResponse
 from starlette.background import BackgroundTask
 
 from octosphere.atproto.client import AtprotoClient
+from octosphere.atproto.models import OCTOSPHERE_PUBLICATION_NSID
 from octosphere.bridge import sync_publications
 from octosphere.database import db, encrypt_password, users, synced_publications
 from octosphere.octopus.client import OctopusClient
@@ -259,33 +264,170 @@ def index(sess):
     )
 
 
+# Jetstream URL for subscribing to social.octosphere.publication records
+JETSTREAM_URL = f"wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections={OCTOSPHERE_PUBLICATION_NSID}"
+
+# Get shutdown event for graceful WebSocket closing
+shutdown_event = signal_shutdown()
+
+
+def PublicationCard(record: dict, did: str, handle: str | None = None, timestamp: str | None = None):
+    """Render a publication as a social media-style card."""
+    title = record.get("title", "Untitled Publication")
+    description = record.get("description", "")
+    pub_type = record.get("publicationType", "")
+    octopus_id = record.get("octopusId", "")
+    octopus_url = record.get("octopusUrl", "")
+    
+    # Build peer review URL: https://www.octopus.ac/create?for={octopusId}&type=PEER_REVIEW
+    peer_review_url = f"https://www.octopus.ac/create?for={octopus_id}&type=PEER_REVIEW" if octopus_id else None
+    
+    # Format timestamp for display
+    time_display = ""
+    if timestamp:
+        try:
+            dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            time_display = dt.strftime("%b %d, %Y at %H:%M")
+        except Exception:
+            time_display = timestamp
+    
+    # Display handle or truncated DID
+    author_display = f"@{handle}" if handle else f"{did[:20]}..."
+    
+    return Article(
+        # Header with author and timestamp
+        Header(
+            Div(
+                Strong(author_display),
+                Small(f" · {time_display}" if time_display else "", style="color: var(--pico-muted-color);"),
+                style="display: flex; align-items: center; gap: 0.5rem;",
+            ),
+            Small(pub_type, style="color: var(--pico-primary);") if pub_type else None,
+        ),
+        # Main content
+        H4(title, style="margin-bottom: 0.5rem;"),
+        P(
+            description[:300] + "..." if len(description) > 300 else description,
+            style="color: var(--pico-muted-color); margin-bottom: 1rem;",
+        ) if description else None,
+        # Footer with action links
+        Footer(
+            Div(
+                A(
+                    I(cls="fa-solid fa-book-open", style="margin-right: 0.25rem;"),
+                    "View on Octopus",
+                    href=octopus_url,
+                    target="_blank",
+                    role="button",
+                    cls="outline",
+                    style="font-size: 0.875rem; padding: 0.25rem 0.75rem;",
+                ) if octopus_url else None,
+                A(
+                    I(cls="fa-solid fa-comments", style="margin-right: 0.25rem;"),
+                    "Post a Peer Review",
+                    href=peer_review_url,
+                    target="_blank",
+                    role="button",
+                    cls="contrast",
+                    style="font-size: 0.875rem; padding: 0.25rem 0.75rem;",
+                ) if peer_review_url else None,
+                style="display: flex; gap: 0.5rem; flex-wrap: wrap;",
+            ),
+        ),
+        style="margin-bottom: 1rem;",
+    )
+
+
+async def jetstream_consumer():
+    """Async generator that consumes Jetstream and yields SSE messages."""
+    while not shutdown_event.is_set():
+        try:
+            async with websockets.connect(JETSTREAM_URL) as ws:
+                while not shutdown_event.is_set():
+                    try:
+                        # Wait for message with timeout to check shutdown
+                        msg = await asyncio.wait_for(ws.recv(), timeout=30.0)
+                        data = json.loads(msg)
+                        
+                        # Jetstream message structure:
+                        # {"did": "did:plc:...", "time_us": ..., "kind": "commit", 
+                        #  "commit": {"operation": "create", "collection": "...", "rkey": "...", "record": {...}}}
+                        
+                        if data.get("kind") == "commit":
+                            commit = data.get("commit", {})
+                            if commit.get("operation") == "create" and commit.get("collection") == OCTOSPHERE_PUBLICATION_NSID:
+                                record = commit.get("record", {})
+                                did = data.get("did", "")
+                                timestamp = record.get("createdAt") or datetime.utcnow().isoformat()
+                                
+                                # Render the publication card
+                                card = PublicationCard(record, did, timestamp=timestamp)
+                                yield sse_message(card)
+                                
+                    except asyncio.TimeoutError:
+                        # Send keepalive comment to prevent connection timeout
+                        continue
+                    except websockets.ConnectionClosed:
+                        break
+                        
+        except Exception as e:
+            # Log error and retry after delay
+            print(f"Jetstream connection error: {e}")
+            await asyncio.sleep(5)
+
+
+@rt("/feed/stream")
+async def feed_stream():
+    """SSE endpoint for live feed."""
+    return EventStream(jetstream_consumer())
+
+
 @rt("/feed")
 def feed(sess):
-    """Live feed page - coming soon."""
+    """Live feed page - real-time stream of research publications."""
     profile = _profile_from_session(sess)
     
-    return _page(
-        "Feed",
-        Header(
-            H1("Live Feed"),
-            P(
-                "Real-time stream of research publications",
-                style="font-size: 1.25rem; color: var(--pico-muted-color);",
+    return (
+        Title("Feed - Octosphere"),
+        Favicon('/static/octosphere.ico', '/static/octosphere.ico'),
+        Link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"),
+        Script(src="https://unpkg.com/htmx-ext-sse@2.2.3/sse.js"),
+        _nav(profile),
+        Main(
+            Header(
+                H1("Live Feed"),
+                P(
+                    "Real-time stream of research publications",
+                    style="font-size: 1.25rem; color: var(--pico-muted-color);",
+                ),
+                style="text-align: center; padding: 2rem 0;",
             ),
-            style="text-align: center; padding: 2rem 0;",
+            # SSE container - new publications appear at the top
+            Div(
+                P(
+                    Span(aria_busy="true", style="margin-right: 0.5rem;"),
+                    "Waiting for new publications...",
+                    style="text-align: center; color: var(--pico-muted-color);",
+                ),
+                id="feed-container",
+                hx_ext="sse",
+                sse_connect="/feed/stream",
+                hx_swap="afterbegin",
+                sse_swap="message",
+            ),
+            cls="container",
         ),
-        Article(
-            Header(H3("Coming Soon")),
+        Footer(
             P(
-                "We're building a live feed that will show research publications "
-                "as they are synced by researchers using Octosphere."
+                A(I(cls="fa-brands fa-github"), href="https://github.com/AndreasThinks/octosphere", style="margin-right: 1rem;"),
+                "Created by ",
+                A("AndreasThinks", href="https://andreasthinks.me/"),
+                " with help from some ✨vibes✨",
+                style="font-size: 0.875rem; color: var(--pico-muted-color);",
             ),
-            P(
-                "This will provide a real-time window into the latest scientific "
-                "contributions being shared on the social web."
-            ),
+            cls="container",
+            style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--pico-muted-border-color); text-align: center;",
         ),
-        profile=profile,
     )
 
 
