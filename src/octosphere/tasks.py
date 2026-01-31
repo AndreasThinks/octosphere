@@ -35,7 +35,7 @@ def task_sync_user(orcid: str) -> None:
             web_url=os.getenv("OCTOPUS_WEB_URL", ""),
             access_token=None,  # Public API doesn't need auth
         )
-        atproto = AtprotoClient(os.getenv("ATPROTO_PDS_URL", "https://bsky.social"))
+        atproto = AtprotoClient(default_pds_url=os.getenv("ATPROTO_PDS_URL"))
         auth = atproto.create_session(user["bsky_handle"], password)
         
         # Use octopus_user_id (internal ID) not orcid

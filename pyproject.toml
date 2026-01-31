@@ -10,6 +10,7 @@ dependencies = [
   "fastlite>=0.0.9",
   "fastmigrate>=0.0.2",
   "cryptography>=42.0.0",
+  "atproto>=0.0.55",
 ]
 
 [project.optional-dependencies]

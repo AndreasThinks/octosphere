@@ -1,10 +1,10 @@
 {
   "lexicon": 1,
-  "id": "com.octopus.publication",
+  "id": "social.octosphere.publication",
   "defs": {
     "main": {
       "type": "record",
-      "description": "Octopus publication record bridged from Octopus LIVE publications.",
+      "description": "Scientific publication record bridged from Octopus.ac via Octosphere. Represents a single version of an Octopus publication.",
       "key": "tid",
       "record": {
         "type": "object",
@@ -47,15 +47,18 @@
           },
           "title": {
             "type": "string",
-            "description": "Publication title."
+            "description": "Publication title.",
+            "maxLength": 1000
           },
           "status": {
             "type": "string",
-            "description": "Octopus publication status (expected LIVE)."
+            "description": "Octopus publication status (expected LIVE).",
+            "knownValues": ["LIVE", "DRAFT", "ARCHIVED"]
           },
           "doi": {
             "type": "string",
-            "description": "Publication version DOI, if present."
+            "format": "uri",
+            "description": "Publication version DOI URL, if present."
           },
           "ownerOrcid": {
             "type": "string",
@@ -96,14 +99,17 @@
           },
           "createdAt": {
             "type": "string",
-            "description": "ISO timestamp of Octopus createdAt."
+            "format": "datetime",
+            "description": "ISO timestamp of when the publication was created in Octopus."
           },
           "updatedAt": {
             "type": "string",
-            "description": "ISO timestamp of Octopus updatedAt."
+            "format": "datetime",
+            "description": "ISO timestamp of when the publication was last updated in Octopus."
           },
           "canonicalUrl": {
             "type": "string",
+            "format": "uri",
             "description": "Public Octopus URL for the publication version."
           }
         }

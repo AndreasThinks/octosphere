@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from octosphere.atproto.client import AtprotoAuth, AtprotoClient
+from octosphere.atproto.client import AtprotoAuth, AtprotoClient, CreateRecordResult
 from octosphere.octopus.client import OctopusClient, OctopusPublication
 
 
@@ -110,8 +110,8 @@ def sync_publications(
             SyncResult(
                 publication_id=mapped.publication_id,
                 version_id=mapped.version_id,
-                uri=created.get("uri", ""),
-                cid=created.get("cid", ""),
+                uri=created.uri,
+                cid=created.cid,
             )
         )
     return results

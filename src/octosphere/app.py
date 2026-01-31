@@ -17,6 +17,7 @@ from octosphere.tasks import task_sync_user
 
 # Get absolute path to static folder (relative to project root)
 STATIC_PATH = Path(__file__).parent.parent.parent / "static"
+LEXICON_PATH = Path(__file__).parent.parent.parent / "lexicon"
 
 settings: Settings | None
 settings_error: str | None = None
@@ -38,6 +39,24 @@ def static_files(fname: str):
     fpath = STATIC_PATH / fname
     if fpath.exists():
         return FileResponse(fpath)
+    return Response("Not found", status_code=404)
+
+
+# Serve favicon at root for pdsls.dev and other tools that look for octosphere.social/favicon.ico
+@rt("/favicon.ico")
+def favicon():
+    fpath = STATIC_PATH / "octosphere.ico"
+    if fpath.exists():
+        return FileResponse(fpath, media_type="image/x-icon")
+    return Response("Not found", status_code=404)
+
+
+# Serve lexicon schemas for discoverability (AT Protocol best practice)
+@rt("/lexicon/{fname:path}")
+def lexicon_files(fname: str):
+    fpath = LEXICON_PATH / fname
+    if fpath.exists():
+        return FileResponse(fpath, media_type="application/json")
     return Response("Not found", status_code=404)
 
 
