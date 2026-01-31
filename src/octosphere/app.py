@@ -1,6 +1,7 @@
 """FastHTML UI for Octosphere bridge."""
 import asyncio
 import json
+import os
 import secrets
 from pathlib import Path
 from datetime import datetime
@@ -13,14 +14,11 @@ from starlette.background import BackgroundTask
 from octosphere.atproto.client import AtprotoClient
 from octosphere.atproto.models import OCTOSPHERE_PUBLICATION_NSID
 from octosphere.bridge import sync_publications
-from octosphere.database import db, encrypt_password, users, synced_publications
+from octosphere.database import db, encrypt_password, users, synced_publications, NotFoundError
 from octosphere.octopus.client import OctopusClient
 from octosphere.orcid import OrcidClient, OrcidProfile
 from octosphere.settings import Settings
 from octosphere.tasks import task_sync_user
-
-
-import os
 
 # Get static/lexicon paths - try CWD first (works on Railway), then fall back to __file__-relative
 def _find_path(name: str) -> Path:
@@ -227,6 +225,14 @@ def _require_login(sess) -> OrcidProfile | None:
     if profile and profile.access_token:
         return profile
     return None
+
+
+def _get_user(orcid: str) -> dict | None:
+    """Get user by ORCID, returning None if not found."""
+    try:
+        return users[orcid]
+    except NotFoundError:
+        return None
 
 
 def _status_panel(message: str, status: str = "info"):
@@ -664,8 +670,8 @@ def sync_panel(sess):
     if not profile:
         return _status_panel("Login with ORCID to continue.", "error")
     
-    # Check if user already has auto-sync enabled
-    existing = users[profile.orcid] if profile.orcid in [u["orcid"] for u in users()] else None
+    # Check if user already has auto-sync enabled (efficient lookup using try/except)
+    existing = _get_user(profile.orcid)
     
     if existing and existing.get("active"):
         pub_count = 0
@@ -1250,8 +1256,8 @@ def manual_sync(sess):
     if not profile:
         return _status_panel("Login with ORCID first.", "error")
     
-    # Get user data
-    existing = users[profile.orcid] if profile.orcid in [u["orcid"] for u in users()] else None
+    # Get user data (efficient lookup using try/except)
+    existing = _get_user(profile.orcid)
     if not existing or not existing.get("active"):
         return _status_panel("Auto-sync not enabled.", "error")
     
@@ -1292,3 +1298,6 @@ def disable_sync(sess):
         P(A("Back to home", href="/")),
         id="sync-panel",
     )
+
+
+serve()

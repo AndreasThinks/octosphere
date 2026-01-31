@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from cryptography.fernet import Fernet
-from fastlite import database
+from fastlite import database, NotFoundError
 
 # Database setup - use env var for path, default to octosphere.db
 db_path = os.getenv("DATABASE_PATH", "octosphere.db")
