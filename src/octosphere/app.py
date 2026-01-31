@@ -169,54 +169,30 @@ def _page(title: str, *content, profile: OrcidProfile | None = None):
     )
 
 
-# Run migrations on startup
+# Run migrations on startup (only for NEW databases)
 def run_migrations():
+    """Handle database creation for new deployments.
+    
+    NOTE: Enrollment of existing databases is handled in database.py BEFORE
+    fastlite.database() is called. This function only creates new databases.
+    """
     from pathlib import Path
     from fastmigrate import create_db, run_migrations as fm_migrate
-    import sqlite3
     
     migrations_path = os.getenv("MIGRATIONS_PATH", "migrations")
     db_path = os.getenv("DATABASE_PATH", "octosphere.db")
     
-    # Check if database exists and needs enrollment vs creation
     db_file = Path(db_path)
-    if db_file.exists():
-        # Database exists - check if it has _meta table (is managed by fastmigrate)
-        try:
-            conn = sqlite3.connect(db_path)
-            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='_meta'")
-            has_meta = cursor.fetchone() is not None
-            
-            if not has_meta:
-                # Existing database without _meta - manually enroll it
-                # Count existing migrations to determine the version
-                migrations_dir = Path(migrations_path)
-                migration_files = sorted(migrations_dir.glob("*.sql")) if migrations_dir.exists() else []
-                current_version = len(migration_files)
-                
-                print(f"[Octosphere] Enrolling existing database at {db_path} (version {current_version})")
-                # Create _meta table and set version to current (assume all migrations applied)
-                conn.execute("CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT)")
-                conn.execute("INSERT OR REPLACE INTO _meta (key, value) VALUES ('version', ?)", (str(current_version),))
-                conn.commit()
-                conn.close()
-                # IMPORTANT: Don't call run_migrations() on freshly enrolled DBs
-                # The DB already has the correct schema, we just marked it as managed
-                print(f"[Octosphere] Enrollment complete - skipping migrations (already at version {current_version})")
-                return
-            
-            conn.close()
-            # Database is already managed by fastmigrate - run any pending migrations
-            fm_migrate(Path(db_path), Path(migrations_path))
-        except Exception as e:
-            print(f"[Octosphere] Error checking database: {e}")
-            raise
-    else:
+    if not db_file.exists():
         # No database exists - create fresh versioned database
         print(f"[Octosphere] Creating new database at {db_path}")
         create_db(Path(db_path))
         # Apply migrations to set up schema
         fm_migrate(Path(db_path), Path(migrations_path))
+    else:
+        # Database already exists - enrollment handled by database.py
+        # Don't call fm_migrate() here to avoid duplicate validation errors
+        print(f"[Octosphere] Using existing database at {db_path}")
 
 
 def log_db_status():
