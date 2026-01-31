@@ -172,7 +172,7 @@ def _page(title: str, *content, profile: OrcidProfile | None = None):
 # Run migrations on startup
 def run_migrations():
     from pathlib import Path
-    from fastmigrate import create_db, run_migrations as fm_migrate, enroll_db
+    from fastmigrate import create_db, run_migrations as fm_migrate
     import sqlite3
     
     migrations_path = os.getenv("MIGRATIONS_PATH", "migrations")
@@ -186,22 +186,31 @@ def run_migrations():
             conn = sqlite3.connect(db_path)
             cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='_meta'")
             has_meta = cursor.fetchone() is not None
-            conn.close()
             
             if not has_meta:
-                # Existing database without _meta - needs enrollment
-                print(f"[Octosphere] Enrolling existing database at {db_path}")
-                enroll_db(db_path, Path(migrations_path))
+                # Existing database without _meta - manually enroll it
+                # Count existing migrations to determine the version
+                migrations_dir = Path(migrations_path)
+                migration_files = sorted(migrations_dir.glob("*.sql")) if migrations_dir.exists() else []
+                current_version = len(migration_files)
+                
+                print(f"[Octosphere] Enrolling existing database at {db_path} (version {current_version})")
+                # Create _meta table and set version to current (assume all migrations applied)
+                conn.execute("CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT)")
+                conn.execute("INSERT OR REPLACE INTO _meta (key, value) VALUES ('version', ?)", (str(current_version),))
+                conn.commit()
+            
+            conn.close()
         except Exception as e:
             print(f"[Octosphere] Error checking database: {e}")
             raise
     else:
         # No database exists - create fresh versioned database
         print(f"[Octosphere] Creating new database at {db_path}")
-        create_db(db_path)
+        create_db(Path(db_path))
     
     # Apply any pending migrations
-    fm_migrate(db_path, migrations_path)
+    fm_migrate(Path(db_path), Path(migrations_path))
 
 
 def log_db_status():
