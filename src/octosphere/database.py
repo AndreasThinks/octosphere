@@ -31,6 +31,9 @@ def get_users_table():
     global _users
     if _users is None:
         _users = db.t.users
+        # Tell fastlite the primary key is 'orcid' (not rowid)
+        # This is needed because we use TEXT PRIMARY KEY in our SQL migration
+        _users.pk = 'orcid'
     return _users
 
 
@@ -39,6 +42,8 @@ def get_synced_publications_table():
     global _synced_publications
     if _synced_publications is None:
         _synced_publications = db.t.synced_publications
+        # Explicitly set pk even though it's INTEGER PRIMARY KEY (for clarity)
+        _synced_publications.pk = 'id'
     return _synced_publications
 
 
