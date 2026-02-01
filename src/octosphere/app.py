@@ -371,7 +371,7 @@ JETSTREAM_URL = f"wss://jetstream2.us-east.bsky.network/subscribe?wantedCollecti
 shutdown_event = signal_shutdown()
 
 
-def PublicationCard(record: dict, did: str, handle: str | None = None, timestamp: str | None = None):
+def PublicationCard(record: dict, did: str, handle: str | None = None, timestamp: str | None = None, uri: str | None = None):
     """Render a publication as a social media-style card.
     
     Uses correct schema fields from social.octosphere.publication lexicon:
@@ -388,6 +388,9 @@ def PublicationCard(record: dict, did: str, handle: str | None = None, timestamp
     
     # Build peer review URL: https://www.octopus.ac/create?for={octopusId}&type=PEER_REVIEW
     peer_review_url = f"https://www.octopus.ac/create?for={octopus_id}&type=PEER_REVIEW" if octopus_id else None
+    
+    # Build pdsls URL for AT Protocol inspection
+    pdsls_url = f"https://pdsls.dev/{uri}" if uri else None
     
     # Format timestamp for display
     time_display = ""
@@ -423,6 +426,15 @@ def PublicationCard(record: dict, did: str, handle: str | None = None, timestamp
         # Footer with action links
         Footer(
             Div(
+                A(
+                    I(cls="fa-solid fa-eye", style="margin-right: 0.25rem;"),
+                    "View on pdsls",
+                    href=pdsls_url,
+                    target="_blank",
+                    role="button",
+                    cls="outline secondary",
+                    style="font-size: 0.875rem; padding: 0.25rem 0.75rem;",
+                ) if pdsls_url else None,
                 A(
                     I(cls="fa-solid fa-book-open", style="margin-right: 0.25rem;"),
                     "View on Octopus",
@@ -490,7 +502,8 @@ def _fetch_historic_publications(limit: int = 50) -> list[dict]:
     """Fetch historic publications from all registered users.
     
     Queries the users table to get DIDs, then fetches their publication records
-    via the public AT Protocol API.
+    via the public AT Protocol API. Includes users with active=0 (one-time sync)
+    as well as active=1 (auto-sync).
     
     Returns:
         List of dicts with: did, handle, uri, record, createdAt
@@ -498,10 +511,9 @@ def _fetch_historic_publications(limit: int = 50) -> list[dict]:
     atproto = _atproto_client()
     all_publications = []
     
-    # Get all active users with their handles and resolve to DIDs
+    # Get all users with their handles and resolve to DIDs
+    # Include both active=0 (one-time sync) and active=1 (auto-sync) users
     for user in users():
-        if not user.get("active"):
-            continue
         
         handle = user.get("bsky_handle")
         if not handle:
@@ -560,6 +572,7 @@ def feed_history():
             p["did"],
             handle=p.get("handle"),
             timestamp=p.get("createdAt"),
+            uri=p.get("uri"),
         )
         for p in publications
     ]
@@ -1197,7 +1210,17 @@ def setup_sync(action: str, sess, handle: str | None = None, app_password: str |
         )
     
     else:  # sync_once
-        # Don't store credentials permanently, just sync now
+        # Store user in database with active=0 so they appear in feed but don't auto-sync
+        # We don't store their password (no auto-sync), but we do record them
+        users.insert(
+            orcid=profile.orcid,
+            bsky_handle=bsky_handle,
+            encrypted_app_password=encrypted_pw,  # Still encrypted, but won't be used for auto-sync
+            octopus_user_id=octopus_user_id,
+            active=0,  # Not active for auto-sync, but will appear in feed
+            pk="orcid",
+        )
+        
         if pub_count == 0:
             return Article(
                 Header(H3("Nothing to sync")),
