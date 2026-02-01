@@ -936,6 +936,65 @@ def sync_panel(sess):
                     hx_swap="outerHTML",
                 ),
             ),
+            # Hidden Advanced Options section
+            Details(
+                Summary(
+                    I(cls="fa-solid fa-gear", style="margin-right: 0.5rem;"),
+                    "Advanced options",
+                    style="cursor: pointer; color: var(--pico-muted-color); font-size: 0.875rem;",
+                ),
+                Article(
+                    H4(
+                        I(cls="fa-solid fa-triangle-exclamation", style="margin-right: 0.5rem; color: #dc2626;"),
+                        "Danger Zone",
+                        style="color: #dc2626;",
+                    ),
+                    P(
+                        "Delete all your Octosphere publication records from the AT Protocol network "
+                        "and disable auto-sync. This only removes ",
+                        Code("social.octosphere.publication"),
+                        " records — your Bluesky posts, likes, and follows are not affected.",
+                        style="font-size: 0.875rem; color: var(--pico-muted-color);",
+                    ),
+                    Form(
+                        Fieldset(
+                            Label(
+                                "Confirm with your Bluesky app password",
+                                Input(
+                                    id="confirm_password",
+                                    name="confirm_password",
+                                    type="password",
+                                    placeholder="App password",
+                                    required=True,
+                                ),
+                            ),
+                            Small(
+                                "For security, re-enter your app password to confirm this destructive action.",
+                                style="color: var(--pico-muted-color);",
+                            ),
+                        ),
+                        Button(
+                            I(cls="fa-solid fa-trash", style="margin-right: 0.5rem;"),
+                            "Delete All Records & Disconnect",
+                            type="submit",
+                            style="background-color: #dc2626; border-color: #dc2626;",
+                        ),
+                        Div(
+                            Span("Deleting records...", aria_busy="true"),
+                            id="delete-loading",
+                            cls="htmx-indicator",
+                            style="display:none;",
+                        ),
+                        hx_post="/delete_all_records",
+                        hx_target="#sync-panel",
+                        hx_swap="outerHTML",
+                        hx_indicator="#delete-loading",
+                        hx_confirm="Are you sure? This will permanently delete all your Octosphere publication records from the AT Protocol network.",
+                    ),
+                    style="border: 1px solid #dc2626; border-radius: var(--pico-border-radius); margin-top: 1rem;",
+                ),
+                style="margin-top: 1.5rem;",
+            ),
             id="sync-panel",
         )
     
@@ -1504,6 +1563,99 @@ def sync_status(orcid: str, sess):
         P(
             A("No thanks, I'm done", href="/"),
             style="text-align: center; margin-top: 1rem;",
+        ),
+        id="sync-panel",
+    )
+
+
+@rt
+def delete_all_records(confirm_password: str, sess):
+    """Delete all Octosphere publication records and disable auto-sync.
+    
+    This only deletes social.octosphere.publication records - not posts, likes, follows, etc.
+    """
+    profile = _require_login(sess)
+    if not profile:
+        return _status_panel("Login with ORCID first.", "error")
+    
+    # Get user data
+    existing = _get_user(profile.orcid)
+    if not existing:
+        return _status_panel("User not found.", "error")
+    
+    bsky_handle = existing.get("bsky_handle", "")
+    if not bsky_handle:
+        return _status_panel("Bluesky handle not found.", "error")
+    
+    # Authenticate with Bluesky using the provided password (not stored password)
+    atproto = _atproto_client()
+    try:
+        auth = atproto.create_session(bsky_handle, confirm_password)
+    except Exception as e:
+        return _status_panel(f"Invalid password: {e}", "error")
+    
+    # Get all Octosphere publication records (ONLY our lexicon collection)
+    try:
+        records = atproto.list_records(
+            auth.did,
+            collection=OCTOSPHERE_PUBLICATION_NSID,  # ONLY social.octosphere.publication
+            limit=100,
+        )
+    except Exception as e:
+        return _status_panel(f"Failed to list records: {e}", "error")
+    
+    # Delete each record
+    deleted_count = 0
+    errors = []
+    for record in records:
+        uri = record.get("uri")
+        if uri:
+            try:
+                atproto.delete_record(auth, uri)
+                deleted_count += 1
+            except Exception as e:
+                errors.append(f"{uri}: {e}")
+    
+    # Clear synced_publications entries for this user
+    # We need to delete them one by one since fastlite doesn't have bulk delete
+    user_synced = [s for s in synced_publications() if s.get("orcid") == profile.orcid]
+    for s in user_synced:
+        try:
+            synced_publications.delete(s.get("id"))
+        except Exception:
+            pass  # Ignore errors when clearing local records
+    
+    # Disable auto-sync
+    users.update({"orcid": profile.orcid, "active": 0})
+    
+    # Build result message
+    if errors:
+        error_msg = P(
+            Strong(f"⚠️ {len(errors)} errors occurred:"),
+            Ul(*[Li(e[:100]) for e in errors[:5]]),
+            style="color: #dc2626; font-size: 0.875rem;",
+        )
+    else:
+        error_msg = None
+    
+    return Article(
+        Header(
+            H3("🗑️ Records Deleted"),
+            style="text-align: center;",
+        ),
+        P(
+            f"Deleted {deleted_count} publication records from the AT Protocol network.",
+            style="text-align: center;",
+        ),
+        P(
+            "Auto-sync has been disabled. Your Bluesky posts, likes, and follows were not affected.",
+            style="text-align: center; color: var(--pico-muted-color);",
+        ),
+        error_msg,
+        Hr(),
+        P(
+            A("Back to home", href="/", role="button", cls="contrast"),
+            style="text-align: center;",
         ),
         id="sync-panel",
     )
