@@ -991,6 +991,37 @@ def sync_panel(sess):
                         hx_indicator="#delete-loading",
                         hx_confirm="Are you sure? This will permanently delete all your Octosphere publication records from the AT Protocol network.",
                     ),
+                    Hr(style="margin: 1.5rem 0; border-color: #dc2626;"),
+                    # Delete Account section
+                    H4(
+                        I(cls="fa-solid fa-user-slash", style="margin-right: 0.5rem; color: #dc2626;"),
+                        "Delete Account",
+                        style="color: #dc2626;",
+                    ),
+                    P(
+                        "Remove your Octosphere account entirely. ",
+                        Strong("Note: "),
+                        "This will NOT delete your publication records from the AT Protocol network. "
+                        "Use 'Delete All Records' above first if you want to remove those.",
+                        style="font-size: 0.875rem; color: var(--pico-muted-color);",
+                    ),
+                    Form(
+                        Button(
+                            I(cls="fa-solid fa-user-minus", style="margin-right: 0.5rem;"),
+                            "Delete My Account",
+                            type="submit",
+                            style="background-color: #dc2626; border-color: #dc2626;",
+                        ),
+                        Div(
+                            Span("Deleting account...", aria_busy="true"),
+                            id="delete-account-loading",
+                            cls="htmx-indicator",
+                            style="display:none;",
+                        ),
+                        hx_post="/delete_account",
+                        hx_indicator="#delete-account-loading",
+                        hx_confirm="Are you sure you want to delete your Octosphere account? This will NOT delete your publication records from the AT Protocol network - use 'Delete All Records' first if you want to remove those.",
+                    ),
                     style="border: 1px solid #dc2626; border-radius: var(--pico-border-radius); margin-top: 1rem;",
                 ),
                 style="margin-top: 1.5rem;",
@@ -1565,6 +1596,49 @@ def sync_status(orcid: str, sess):
             style="text-align: center; margin-top: 1rem;",
         ),
         id="sync-panel",
+    )
+
+
+@rt
+def delete_account(sess):
+    """Delete the user's Octosphere account.
+    
+    This removes the user from the database and clears synced_publications,
+    but does NOT delete their AT Protocol records (publications remain on the network).
+    """
+    profile = _require_login(sess)
+    if not profile:
+        return _status_panel("Login with ORCID first.", "error")
+    
+    # Delete synced_publications entries for this user
+    user_synced = [s for s in synced_publications() if s.get("orcid") == profile.orcid]
+    for s in user_synced:
+        try:
+            synced_publications.delete(s.get("id"))
+        except Exception:
+            pass
+    
+    # Delete user from users table
+    try:
+        users.delete(profile.orcid)
+    except Exception:
+        pass  # User may not exist in users table yet
+    
+    # Clear the session
+    sess.pop("orcid", None)
+    sess.pop("orcid_state", None)
+    sess.pop("octopus_user_id", None)
+    sess.pop("bsky_handle", None)
+    sess.pop("bsky_app_password", None)
+    sess.pop("bsky_authenticated", None)
+    
+    # Return a page that redirects to home (HTMX can't do full redirects easily)
+    return Response(
+        content=str(Div(
+            Script("window.location.href = '/';"),
+            P("Account deleted. Redirecting...", style="text-align: center;"),
+        )),
+        headers={"HX-Redirect": "/"},
     )
 
 
