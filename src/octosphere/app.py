@@ -19,6 +19,51 @@ from octosphere.octopus.client import OctopusClient
 from octosphere.orcid import OrcidClient, OrcidProfile
 from octosphere.settings import Settings
 from octosphere.tasks import task_sync_user
+import threading
+
+# In-memory sync status tracking (for polling-based loading indicator)
+# Format: {orcid: {"status": "syncing"|"complete"|"error", "results": [...], "error": str, "bsky_handle": str}}
+_sync_status: dict[str, dict] = {}
+_sync_lock = threading.Lock()
+
+
+def _run_sync_in_background(
+    orcid: str,
+    octopus_user_id: str,
+    bsky_handle: str,
+    bsky_password: str,
+    already_synced: set,
+):
+    """Run sync in background thread and update _sync_status when done."""
+    try:
+        octopus = _octopus_client()
+        atproto = _atproto_client()
+        auth = atproto.create_session(bsky_handle, bsky_password)
+        
+        results = sync_publications(octopus, atproto, auth, octopus_user_id, already_synced=already_synced)
+        
+        # Record synced publications in database
+        for r in results:
+            synced_publications.insert(
+                orcid=orcid,
+                octopus_pub_id=r.publication_id,
+                octopus_version_id=r.version_id,
+                at_uri=r.uri,
+            )
+        
+        with _sync_lock:
+            _sync_status[orcid] = {
+                "status": "complete",
+                "results": results,
+                "bsky_handle": bsky_handle,
+            }
+    except Exception as e:
+        with _sync_lock:
+            _sync_status[orcid] = {
+                "status": "error",
+                "error": str(e),
+                "bsky_handle": bsky_handle,
+            }
 
 # Get static/lexicon paths - try CWD first (works on Railway), then fall back to __file__-relative
 def _find_path(name: str) -> Path:
@@ -1230,85 +1275,44 @@ def setup_sync(action: str, sess, handle: str | None = None, app_password: str |
                 id="sync-panel",
             )
         
-        # Sync publications synchronously and show results
-        try:
-            # Get already synced publications to prevent duplicates
-            already_synced = {
-                (s.get("octopus_pub_id"), s.get("octopus_version_id"))
-                for s in synced_publications()
-                if s.get("orcid") == profile.orcid
+        # Get already synced publications to prevent duplicates
+        already_synced = {
+            (s.get("octopus_pub_id"), s.get("octopus_version_id"))
+            for s in synced_publications()
+            if s.get("orcid") == profile.orcid
+        }
+        
+        # Set initial sync status and start background thread
+        with _sync_lock:
+            _sync_status[profile.orcid] = {
+                "status": "syncing",
+                "bsky_handle": bsky_handle,
             }
-            results = sync_publications(octopus, atproto, auth, octopus_user_id, already_synced=already_synced)
-            
-            # Record synced publications
-            for r in results:
-                synced_publications.insert(
-                    orcid=profile.orcid,
-                    octopus_pub_id=r.publication_id,
-                    octopus_version_id=r.version_id,
-                    at_uri=r.uri,
-                )
-            
-            # Build results table
-            rows = [
-                Tr(
-                    Td(r.publication_id[:12] + "..."),
-                    Td(A("View on pdsls", href=f"https://pdsls.dev/{r.uri}" if r.uri else "#", target="_blank")),
-                )
-                for r in results[:10]
-            ]
-            
-            # Step 4: Show success and prompt for auto-sync
-            return Article(
-                # Success header with checkmark
-                Header(
-                    H3("✅ Synced ", Strong(f"{len(results)}"), " publications!"),
-                    style="text-align: center;",
-                ),
-                P(
-                    f"Your research is now live on @{bsky_handle}",
-                    style="text-align: center; color: var(--pico-muted-color);",
-                ),
-                # Results table
-                Table(
-                    Thead(Tr(Th("Publication ID"), Th("Link"))),
-                    Tbody(*rows),
-                ) if rows else None,
-                P(
-                    Small(f"Showing {min(len(results), 10)} of {len(results)} publications"),
-                    style="text-align: center;",
-                ) if len(results) > 10 else None,
-                Hr(),
-                # Step 4: Auto-sync CTA
-                H4("Step 4: Keep your publications in sync"),
-                P(
-                    "Enable auto-sync to automatically publish future Octopus publications "
-                    "to the atmosphere. We'll check for new publications every 7 days."
-                ),
-                Form(
-                    Input(type="hidden", name="handle", value=bsky_handle),
-                    Input(type="hidden", name="app_password", value=bsky_password),
-                    Input(type="hidden", name="action", value="auto_sync"),
-                    Button("Enable auto-sync", type="submit", cls="contrast", style="width: 100%;"),
-                    Div(
-                        Span("Setting up auto-sync...", aria_busy="true"),
-                        id="loading-autosync",
-                        cls="htmx-indicator",
-                        style="display:none;",
-                    ),
-                    hx_post="/setup_sync",
-                    hx_target="#sync-panel",
-                    hx_swap="outerHTML",
-                    hx_indicator="#loading-autosync",
-                ),
-                P(
-                    A("No thanks, I'm done", href="/"),
-                    style="text-align: center; margin-top: 1rem;",
-                ),
-                id="sync-panel",
-            )
-        except Exception as e:
-            return _status_panel(f"Sync failed: {e}", "error")
+        
+        # Start sync in background thread
+        sync_thread = threading.Thread(
+            target=_run_sync_in_background,
+            args=(profile.orcid, octopus_user_id, bsky_handle, bsky_password, already_synced),
+            daemon=True,
+        )
+        sync_thread.start()
+        
+        # Return polling UI that checks /sync_status/{orcid} every second
+        return Article(
+            P(
+                Span(aria_busy="true", style="margin-right: 0.5rem;"),
+                "Syncing your publications to the atmosphere...",
+                style="text-align: center; padding: 1rem 0;",
+            ),
+            P(
+                Small("This may take a moment depending on how many publications you have."),
+                style="text-align: center; color: var(--pico-muted-color);",
+            ),
+            id="sync-panel",
+            hx_get=f"/sync_status/{profile.orcid}",
+            hx_trigger="every 1s",
+            hx_swap="outerHTML",
+        )
 
 
 @rt
@@ -1358,6 +1362,125 @@ def disable_sync(sess):
         Header(H3("Auto-sync disabled")),
         P("Your publications will no longer be synced automatically."),
         P(A("Back to home", href="/")),
+        id="sync-panel",
+    )
+
+
+@rt("/sync_status/{orcid}")
+def sync_status(orcid: str, sess):
+    """Polling endpoint for sync status - returns syncing UI or final results."""
+    profile = _require_login(sess)
+    if not profile or profile.orcid != orcid:
+        return _status_panel("Unauthorized.", "error")
+    
+    with _sync_lock:
+        status = _sync_status.get(orcid)
+    
+    if not status:
+        # No status found - sync may not have started yet
+        return Article(
+            P(
+                Span(aria_busy="true", style="margin-right: 0.5rem;"),
+                "Starting sync...",
+                style="text-align: center; padding: 1rem 0;",
+            ),
+            id="sync-panel",
+            hx_get=f"/sync_status/{orcid}",
+            hx_trigger="every 1s",
+            hx_swap="outerHTML",
+        )
+    
+    if status["status"] == "syncing":
+        # Still syncing - show spinner and keep polling
+        return Article(
+            P(
+                Span(aria_busy="true", style="margin-right: 0.5rem;"),
+                "Syncing your publications to the atmosphere...",
+                style="text-align: center; padding: 1rem 0;",
+            ),
+            P(
+                Small("This may take a moment depending on how many publications you have."),
+                style="text-align: center; color: var(--pico-muted-color);",
+            ),
+            id="sync-panel",
+            hx_get=f"/sync_status/{orcid}",
+            hx_trigger="every 1s",
+            hx_swap="outerHTML",
+        )
+    
+    if status["status"] == "error":
+        # Sync failed - clean up and show error
+        with _sync_lock:
+            _sync_status.pop(orcid, None)
+        return _status_panel(f"Sync failed: {status.get('error', 'Unknown error')}", "error")
+    
+    # status == "complete" - show results
+    results = status.get("results", [])
+    bsky_handle = status.get("bsky_handle", "")
+    
+    # Clean up status
+    with _sync_lock:
+        _sync_status.pop(orcid, None)
+    
+    # Get session data for auto-sync form
+    bsky_password = sess.get("bsky_app_password", "")
+    
+    # Build results table
+    rows = [
+        Tr(
+            Td(r.publication_id[:12] + "..."),
+            Td(A("View on pdsls", href=f"https://pdsls.dev/{r.uri}" if r.uri else "#", target="_blank")),
+        )
+        for r in results[:10]
+    ]
+    
+    # Step 4: Show success and prompt for auto-sync
+    return Article(
+        # Success header with checkmark
+        Header(
+            H3("✅ Synced ", Strong(f"{len(results)}"), " publications!"),
+            style="text-align: center;",
+        ),
+        P(
+            f"Your research is now live on @{bsky_handle}",
+            style="text-align: center; color: var(--pico-muted-color);",
+        ),
+        # Results table
+        Table(
+            Thead(Tr(Th("Publication ID"), Th("Link"))),
+            Tbody(*rows),
+        ) if rows else None,
+        P(
+            Small(f"Showing {min(len(results), 10)} of {len(results)} publications"),
+            style="text-align: center;",
+        ) if len(results) > 10 else None,
+        Hr(),
+        # Step 4: Auto-sync CTA
+        H4("Step 4: Keep your publications in sync"),
+        P(
+            "Enable auto-sync to automatically publish future Octopus publications "
+            "to the atmosphere. We'll check for new publications every 7 days."
+        ),
+        Form(
+            Input(type="hidden", name="handle", value=bsky_handle),
+            Input(type="hidden", name="app_password", value=bsky_password),
+            Input(type="hidden", name="action", value="auto_sync"),
+            Button("Enable auto-sync", type="submit", cls="contrast", style="width: 100%;"),
+            Div(
+                Span("Setting up auto-sync...", aria_busy="true"),
+                id="loading-autosync",
+                cls="htmx-indicator",
+                style="display:none;",
+            ),
+            hx_post="/setup_sync",
+            hx_target="#sync-panel",
+            hx_swap="outerHTML",
+            hx_indicator="#loading-autosync",
+        ),
+        P(
+            A("No thanks, I'm done", href="/"),
+            style="text-align: center; margin-top: 1rem;",
+        ),
         id="sync-panel",
     )
 
