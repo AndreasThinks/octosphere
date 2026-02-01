@@ -1357,16 +1357,18 @@ def setup_sync(action: str, sess, handle: str | None = None, app_password: str |
             message = P("We'll sync your publications when you publish on Octopus.")
             background = None
         
-        return Response(
-            content=Article(
-                Header(H3("Auto-sync enabled")),
-                P(f"Your publications will be synced to @{bsky_handle}"),
-                message,
-                P(A("Back to home", href="/")),
-                id="sync-panel",
-            ),
-            background=background,
+        # Return content with optional background task (FastHTML pattern: return as tuple)
+        content = Article(
+            Header(H3("Auto-sync enabled")),
+            P(f"Your publications will be synced to @{bsky_handle}"),
+            message,
+            P(A("Back to home", href="/")),
+            id="sync-panel",
         )
+        if background:
+            return content, background
+        else:
+            return content
     
     else:  # sync_once
         # Store user in database with active=0 so they appear in feed but don't auto-sync
