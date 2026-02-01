@@ -49,7 +49,7 @@ def _ensure_db_enrolled():
 _ensure_db_enrolled()
 
 # NOW it's safe to import and connect via fastlite
-from fastlite import database
+from fastlite import database, Table
 db = database(db_path)
 
 # SQL-first approach: Don't create tables here - let migrations handle schema.
@@ -65,10 +65,9 @@ def get_users_table():
     """Get the users table (lazy initialization after migrations)."""
     global _users
     if _users is None:
-        _users = db.t.users
-        # Tell fastlite the primary key is 'orcid' (not rowid)
+        # Use Table constructor with explicit pk to properly configure fastlite
         # This is needed because we use TEXT PRIMARY KEY in our SQL migration
-        _users.pk = 'orcid'
+        _users = Table(db, 'users', pk='orcid')
     return _users
 
 
@@ -76,9 +75,8 @@ def get_synced_publications_table():
     """Get the synced_publications table (lazy initialization after migrations)."""
     global _synced_publications
     if _synced_publications is None:
-        _synced_publications = db.t.synced_publications
-        # Explicitly set pk even though it's INTEGER PRIMARY KEY (for clarity)
-        _synced_publications.pk = 'id'
+        # Use Table constructor with explicit pk to fix 'rowid' lookup errors
+        _synced_publications = Table(db, 'synced_publications', pk='id')
     return _synced_publications
 
 
