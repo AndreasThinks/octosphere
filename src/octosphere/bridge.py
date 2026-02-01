@@ -81,26 +81,41 @@ def build_record(
     created_at = version.get("createdAt") or pub.get("createdAt")
     updated_at = version.get("updatedAt") or pub.get("updatedAt")
     title = _safe_text(version.get("title") or pub.get("title") or "Untitled")
-    return {
+    
+    # Build record with required fields first
+    record: dict[str, Any] = {
         "octopusId": publication.publication_id,
         "versionId": publication.version_id,
         "publicationType": _publication_type(version, pub),
         "title": title,
         "status": pub.get("status") or version.get("status") or "LIVE",
-        "doi": _normalize_doi(version.get("doi") or version.get("doiUrl")),
-        "ownerOrcid": pub.get("ownerId") or pub.get("ownerOrcid"),
         "contentHtml": html,
         "contentText": text or html,
         "citations": _extract_citations(version),
         "linkedTo": publication.linked_to,
         "linkedFrom": publication.linked_from,
-        "peerReviewOf": _peer_review_of(version, pub),
         "createdAt": created_at or datetime.utcnow().isoformat(),
         "updatedAt": updated_at or datetime.utcnow().isoformat(),
-        "canonicalUrl": client.publication_url(
-            publication.publication_id, publication.version_id
-        ),
     }
+    
+    # Add optional fields only if they have values (None is not valid for string fields)
+    doi = _normalize_doi(version.get("doi") or version.get("doiUrl"))
+    if doi:
+        record["doi"] = doi
+    
+    owner_orcid = pub.get("ownerId") or pub.get("ownerOrcid")
+    if owner_orcid:
+        record["ownerOrcid"] = owner_orcid
+    
+    peer_review_of = _peer_review_of(version, pub)
+    if peer_review_of:
+        record["peerReviewOf"] = peer_review_of
+    
+    canonical_url = client.publication_url(publication.publication_id, publication.version_id)
+    if canonical_url:
+        record["canonicalUrl"] = canonical_url
+    
+    return record
 
 
 def sync_publications(
