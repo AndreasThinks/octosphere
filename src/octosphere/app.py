@@ -1226,8 +1226,8 @@ def setup_sync(action: str, sess, handle: str | None = None, app_password: str |
     encrypted_pw = encrypt_password(bsky_password)
     
     if action == "auto_sync":
-        # Store credentials for ongoing sync
-        users.insert(
+        # Store/update credentials for ongoing sync (use upsert in case user already exists from sync_once)
+        users.upsert(
             orcid=profile.orcid,
             bsky_handle=bsky_handle,
             encrypted_app_password=encrypted_pw,
@@ -1256,8 +1256,8 @@ def setup_sync(action: str, sess, handle: str | None = None, app_password: str |
     
     else:  # sync_once
         # Store user in database with active=0 so they appear in feed but don't auto-sync
-        # We don't store their password (no auto-sync), but we do record them
-        users.insert(
+        # Use upsert in case user already exists (allows re-syncing)
+        users.upsert(
             orcid=profile.orcid,
             bsky_handle=bsky_handle,
             encrypted_app_password=encrypted_pw,  # Still encrypted, but won't be used for auto-sync
