@@ -670,6 +670,17 @@ def feed(sess):
                     "Recent and live publications from the atmosphere",
                     style="font-size: 1.25rem; color: var(--pico-muted-color);",
                 ),
+                P(
+                    A(
+                        I(cls="fa-solid fa-satellite-dish", style="margin-right: 0.25rem;"),
+                        "View live Jetstream",
+                        href="https://pdsls.dev/jetstream?instance=wss%3A%2F%2Fjetstream1.us-east.bsky.network%2Fsubscribe&collections=social.octosphere.publication",
+                        target="_blank",
+                        title="View live Jetstream feed on pdsls.dev - see real-time AT Protocol events",
+                        style="color: var(--pico-muted-color); font-size: 0.875rem; text-decoration: none;",
+                    ),
+                    style="margin-top: 0.5rem;",
+                ),
                 style="text-align: center; padding: 2rem 0;",
             ),
             # Live streaming container - new publications appear at the top (above history)
