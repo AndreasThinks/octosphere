@@ -2,6 +2,7 @@
 import asyncio
 import json
 import os
+import re
 import secrets
 from pathlib import Path
 from datetime import datetime
@@ -309,6 +310,17 @@ def _get_user(orcid: str) -> dict | None:
         return None
 
 
+def _strip_html_tags(text: str) -> str:
+    """Remove HTML tags from text, returning clean plain text."""
+    if not text:
+        return ""
+    # Remove HTML tags using regex
+    clean = re.sub(r'<[^>]+>', ' ', text)
+    # Collapse multiple spaces into single space
+    clean = re.sub(r'\s+', ' ', clean)
+    return clean.strip()
+
+
 def _status_panel(message: str, status: str = "info"):
     cls = {
         "info": "secondary",
@@ -425,7 +437,8 @@ def PublicationCard(record: dict, did: str, handle: str | None = None, timestamp
     """
     title = record.get("title") or "Untitled Publication"
     # Use contentText from schema (fall back to contentHtml stripped, then empty)
-    content_text = record.get("contentText") or ""
+    # Strip any HTML tags from the content for clean display
+    content_text = _strip_html_tags(record.get("contentText") or "")
     pub_type = record.get("publicationType") or ""
     octopus_id = record.get("octopusId") or ""
     # Use canonicalUrl from schema (correct field name)
