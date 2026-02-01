@@ -134,7 +134,7 @@ class TestBuildRecord:
         assert record["title"] == "Test Publication"
         assert record["contentHtml"] == "<p>HTML content</p>"
         assert record["contentText"] == "Plain text content"
-        assert record["doi"] == "10.1234/test"
+        assert record["doi"] == "https://doi.org/10.1234/test"
         assert record["linkedTo"] == ["pub-linked-1"]
         assert record["linkedFrom"] == ["pub-linked-2"]
         assert record["canonicalUrl"] == "https://octopus.ac/pubs/pub-1/v1"

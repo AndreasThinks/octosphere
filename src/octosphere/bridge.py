@@ -21,6 +21,24 @@ def _safe_text(value: str | None) -> str:
     return (value or "").strip()
 
 
+def _normalize_doi(doi: str | None) -> str | None:
+    """Convert DOI to full URL format for AT Protocol uri validation.
+    
+    The lexicon defines doi as format: "uri", so bare DOIs must be
+    converted to full URLs like https://doi.org/10.1234/example
+    """
+    if not doi:
+        return None
+    doi = doi.strip()
+    if not doi:
+        return None
+    # If already a full URL, return as-is
+    if doi.startswith("http://") or doi.startswith("https://"):
+        return doi
+    # Convert bare DOI to full URL
+    return f"https://doi.org/{doi}"
+
+
 def _extract_citations(version: dict[str, Any]) -> list[str]:
     citations: list[str] = []
     raw = version.get("references") or version.get("citations") or []
@@ -69,7 +87,7 @@ def build_record(
         "publicationType": _publication_type(version, pub),
         "title": title,
         "status": pub.get("status") or version.get("status") or "LIVE",
-        "doi": version.get("doi") or version.get("doiUrl"),
+        "doi": _normalize_doi(version.get("doi") or version.get("doiUrl")),
         "ownerOrcid": pub.get("ownerId") or pub.get("ownerOrcid"),
         "contentHtml": html,
         "contentText": text or html,
