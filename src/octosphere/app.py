@@ -1034,6 +1034,14 @@ def sync_panel(sess):
         
         bsky_handle = existing.get("bsky_handle", "")
         last_sync = existing.get("last_sync")
+
+        # Resolve DID for PDSLS link
+        bsky_did = None
+        try:
+            atproto = _atproto_client()
+            bsky_did = atproto._resolver.handle.resolve(bsky_handle)
+        except Exception:
+            pass
         
         # Format last sync time
         if last_sync:
@@ -1141,14 +1149,13 @@ def sync_panel(sess):
                     ),
                     A(
                         I(cls="fa-solid fa-arrow-up-right-from-square", style="margin-right: 0.5rem;"),
-                        "View on Bluesky",
-                        href=f"https://bsky.app/profile/{bsky_handle}",
+                        "View on PDSLS",
+                        href=f"https://pdsls.dev/at://{bsky_did}/social.octosphere.publication" if bsky_did else f"https://bsky.app/profile/{bsky_handle}",
                         target="_blank",
                         role="button",
                         cls="outline",
-                        style="margin-left: 0.5rem;",
                     ),
-                    style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;",
+                    style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;",
                 ),
                 Hr(),
                 Form(
