@@ -1,7 +1,18 @@
 """Tests for background sync tasks."""
+import logging
 import pytest
 from unittest.mock import MagicMock, patch
 from datetime import datetime, timedelta
+
+
+@pytest.fixture(autouse=True)
+def enable_log_capture():
+    """Enable log propagation for caplog to capture logs during tests."""
+    logger = logging.getLogger("octosphere")
+    original_propagate = logger.propagate
+    logger.propagate = True
+    yield
+    logger.propagate = original_propagate
 
 
 class TestGetSyncIntervalDays:
@@ -101,17 +112,17 @@ class TestTaskSyncUser:
             
             # Should exit early, no further calls made
 
-    def test_skips_user_without_octopus_id(self, mock_user, capsys):
+    def test_skips_user_without_octopus_id(self, mock_user, caplog):
         mock_user["octopus_user_id"] = None
-        
+
         with patch("octosphere.tasks.users") as mock_users:
             mock_users.__getitem__.return_value = mock_user
-            
-            from octosphere.tasks import task_sync_user
-            task_sync_user("0000-0001-2345-6789")
-            
-            captured = capsys.readouterr()
-            assert "No octopus_user_id" in captured.out
+
+            with caplog.at_level(logging.WARNING):
+                from octosphere.tasks import task_sync_user
+                task_sync_user("0000-0001-2345-6789")
+
+            assert "No octopus_user_id" in caplog.text
 
     @patch("octosphere.tasks.sync_publications")
     @patch("octosphere.tasks.AtprotoClient")
@@ -162,19 +173,19 @@ class TestTaskSyncUser:
         mock_synced_pubs.insert.assert_called_once()
 
     @patch("octosphere.tasks.decrypt_password")
-    def test_handles_sync_errors_gracefully(self, mock_decrypt, mock_user, capsys, monkeypatch):
+    def test_handles_sync_errors_gracefully(self, mock_decrypt, mock_user, caplog, monkeypatch):
         mock_decrypt.side_effect = Exception("Decryption failed")
-        
+
         monkeypatch.setenv("OCTOPUS_API_URL", "https://api.octopus.ac")
         monkeypatch.setenv("OCTOPUS_WEB_URL", "https://www.octopus.ac")
-        
+
         with patch("octosphere.tasks.users") as mock_users:
             mock_users.__getitem__.return_value = mock_user
-            
-            from octosphere.tasks import task_sync_user
-            # Should not raise, just print error
-            task_sync_user("0000-0001-2345-6789")
-        
-        captured = capsys.readouterr()
-        assert "Sync failed" in captured.out
-        assert "Decryption failed" in captured.out
+
+            with caplog.at_level(logging.ERROR):
+                from octosphere.tasks import task_sync_user
+                # Should not raise, just log error
+                task_sync_user("0000-0001-2345-6789")
+
+        assert "Sync failed" in caplog.text
+        assert "Decryption failed" in caplog.text

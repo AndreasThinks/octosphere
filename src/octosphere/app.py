@@ -1,9 +1,11 @@
 """FastHTML UI for Octosphere bridge."""
 import asyncio
 import json
+import logging
 import os
 import re
 import secrets
+import sys
 from pathlib import Path
 from datetime import datetime
 
@@ -21,6 +23,54 @@ from octosphere.orcid import OrcidClient, OrcidProfile
 from octosphere.settings import Settings
 from octosphere.tasks import task_sync_user
 import threading
+
+
+# --- Railway-compatible logging configuration ---
+def _configure_logging():
+    """Configure logging for Railway deployment.
+
+    Railway captures stdout/stderr and recommends structured logging.
+    Uses JSON format in production for better log searchability.
+    """
+    log_level = logging.DEBUG if os.getenv("ENVIRONMENT") == "development" else logging.INFO
+
+    # JSON formatter for structured logging (Railway-friendly)
+    class JsonFormatter(logging.Formatter):
+        def format(self, record):
+            log_entry = {
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "level": record.levelname,
+                "logger": record.name,
+                "message": record.getMessage(),
+            }
+            if record.exc_info:
+                log_entry["exception"] = self.formatException(record.exc_info)
+            return json.dumps(log_entry)
+
+    # Simple formatter for development
+    class SimpleFormatter(logging.Formatter):
+        def format(self, record):
+            return f"[{record.levelname}] {record.name}: {record.getMessage()}"
+
+    # Configure root logger to output to stdout (Railway captures this)
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(log_level)
+
+    # Use JSON in production, simple format in development
+    if os.getenv("ENVIRONMENT") == "production":
+        handler.setFormatter(JsonFormatter())
+    else:
+        handler.setFormatter(SimpleFormatter())
+
+    # Configure the octosphere logger
+    root_logger = logging.getLogger("octosphere")
+    root_logger.setLevel(log_level)
+    root_logger.addHandler(handler)
+    root_logger.propagate = False  # Don't duplicate logs to root logger
+
+
+_configure_logging()
+logger = logging.getLogger(__name__)
 
 # In-memory sync status tracking (for polling-based loading indicator)
 # Format: {orcid: {"status": "syncing"|"complete"|"error", "results": [...], "error": str, "bsky_handle": str}}
@@ -91,9 +141,74 @@ except RuntimeError as exc:
     settings = None
     settings_error = str(exc)
 
+
+# --- CSRF Protection Helpers ---
+def generate_csrf_token(sess) -> str:
+    """Generate or retrieve CSRF token for the session."""
+    if 'csrf_token' not in sess:
+        sess['csrf_token'] = secrets.token_urlsafe(32)
+    return sess['csrf_token']
+
+
+def verify_csrf_token(sess, token: str | None) -> bool:
+    """Verify CSRF token matches session token using constant-time comparison."""
+    expected = sess.get('csrf_token', '')
+    if not expected or not token:
+        return False
+    return secrets.compare_digest(expected, token)
+
+
+def csrf_input(sess):
+    """Return a hidden input field with CSRF token for forms."""
+    return Input(type="hidden", name="csrf_token", value=generate_csrf_token(sess))
+
+
+# --- Authentication Beforeware ---
+# Public routes that don't require authentication
+PUBLIC_ROUTES = [
+    r'^/$',
+    r'^/favicon\.ico$',
+    r'^/static/.*$',
+    r'^/lexicon/.*$',
+    r'^/login$',
+    r'^/callback$',
+    r'^/logout$',
+    r'^/feed.*$',
+]
+
+
+def auth_before(req, sess):
+    """Beforeware to set auth in request scope and protect private routes."""
+    # Set auth from session (prevents injection via query params)
+    orcid_data = sess.get('orcid')
+    if orcid_data and orcid_data.get('access_token'):
+        req.scope['auth'] = orcid_data
+    else:
+        req.scope['auth'] = None
+
+    # Check if route requires authentication
+    path = req.url.path
+    for pattern in PUBLIC_ROUTES:
+        if re.match(pattern, path):
+            return None  # Allow access to public routes
+
+    # Require auth for all other routes
+    if not req.scope['auth']:
+        return RedirectResponse('/login', status_code=303)
+
+    return None
+
+
+# Create Beforeware instance
+bware = Beforeware(auth_before, skip=[])  # We handle skip logic inside auth_before
+
+
 app, rt = fast_app(
     title="Octosphere",
     secret_key=settings.session_secret if settings else None,
+    before=bware,
+    sess_https_only=os.getenv("ENVIRONMENT", "development") == "production",  # HTTPS-only in production
+    same_site='lax',  # Prevent CSRF via cross-site requests
 )
 
 
@@ -979,6 +1094,7 @@ def sync_panel(sess):
                 ),
                 Div(
                     Form(
+                        csrf_input(sess),  # CSRF protection
                         Button(
                             I(cls="fa-solid fa-rotate", style="margin-right: 0.5rem;"),
                             "Sync Now",
@@ -1010,6 +1126,7 @@ def sync_panel(sess):
                 ),
                 Hr(),
                 Form(
+                    csrf_input(sess),  # CSRF protection
                     Button(
                         I(cls="fa-solid fa-power-off", style="margin-right: 0.5rem;"),
                         "Disable auto-sync",
@@ -1042,6 +1159,7 @@ def sync_panel(sess):
                         style="font-size: 0.875rem; color: var(--pico-muted-color);",
                     ),
                     Form(
+                        csrf_input(sess),  # CSRF protection
                         Fieldset(
                             Label(
                                 "Confirm with your Bluesky app password",
@@ -1091,6 +1209,7 @@ def sync_panel(sess):
                         style="font-size: 0.875rem; color: var(--pico-muted-color);",
                     ),
                     Form(
+                        csrf_input(sess),  # CSRF protection
                         Button(
                             I(cls="fa-solid fa-user-minus", style="margin-right: 0.5rem;"),
                             "Delete My Account",
@@ -1125,6 +1244,7 @@ def sync_panel(sess):
             Header(H3("Step 1: Sign in with Bluesky")),
             P("First, connect your Bluesky account to sync your publications."),
             Form(
+                csrf_input(sess),  # CSRF protection
                 Fieldset(
                     Label("Bluesky handle", Input(id="handle", placeholder="user.bsky.social", required=True)),
                     Label("App password", Input(id="app_password", type="password", required=True)),
@@ -1144,13 +1264,14 @@ def sync_panel(sess):
             ),
             id="sync-panel",
         )
-    
+
     # Step 2: Ask for Octopus author URL (only shown after Bluesky is connected)
     return Article(
         Header(H3("Step 2: Connect your Octopus profile")),
         P(f"Connected to Bluesky as @{bsky_handle}"),
         P("Now, let's find your Octopus publications."),
         Form(
+            csrf_input(sess),  # CSRF protection
             Fieldset(
                 Label(
                     "Octopus author page URL",
@@ -1183,18 +1304,23 @@ def sync_panel(sess):
 
 
 @rt
-def validate_bluesky(handle: str, app_password: str, sess):
+def validate_bluesky(handle: str, app_password: str, sess, csrf_token: str | None = None):
     """Step 1: Validate Bluesky credentials and store in session."""
+    # Verify CSRF token
+    if not verify_csrf_token(sess, csrf_token):
+        return _status_panel("Invalid request. Please try again.", "error")
+
     profile = _require_login(sess)
     if not profile:
         return _status_panel("Login with ORCID first.", "error")
-    
+
     # Validate Bluesky credentials
     atproto = _atproto_client()
     try:
         auth = atproto.create_session(handle, app_password)
     except Exception as e:
-        return _status_panel(f"Invalid Bluesky credentials: {e}", "error")
+        logger.warning(f"Bluesky auth failed: {e}")
+        return _status_panel("Invalid Bluesky credentials. Please check your handle and app password.", "error")
     
     # Store Bluesky connection in session
     sess["bsky_handle"] = handle
@@ -1207,6 +1333,7 @@ def validate_bluesky(handle: str, app_password: str, sess):
         P(f"Connected to Bluesky as @{handle}"),
         P("Now, let's find your Octopus publications."),
         Form(
+            csrf_input(sess),  # CSRF protection
             Fieldset(
                 Label(
                     "Octopus author page URL",
@@ -1244,12 +1371,13 @@ def disconnect_bluesky(sess):
     sess.pop("bsky_handle", None)
     sess.pop("bsky_app_password", None)
     sess.pop("bsky_authenticated", None)
-    
+
     # Return the Bluesky login form (Step 1)
     return Article(
         Header(H3("Step 1: Sign in with Bluesky")),
         P("First, connect your Bluesky account to sync your publications."),
         Form(
+            csrf_input(sess),  # CSRF protection
             Fieldset(
                 Label("Bluesky handle", Input(id="handle", placeholder="user.bsky.social", required=True)),
                 Label("App password", Input(id="app_password", type="password", required=True)),
@@ -1272,17 +1400,21 @@ def disconnect_bluesky(sess):
 
 
 @rt
-def validate_octopus(octopus_url: str, sess):
+def validate_octopus(octopus_url: str, sess, csrf_token: str | None = None):
     """Step 2 result: Validate Octopus URL and show publications with sync button."""
+    # Verify CSRF token
+    if not verify_csrf_token(sess, csrf_token):
+        return _status_panel("Invalid request. Please try again.", "error")
+
     profile = _require_login(sess)
     if not profile:
         return _status_panel("Login with ORCID first.", "error")
-    
+
     # Check that Bluesky is connected
     bsky_handle = sess.get("bsky_handle")
     if not sess.get("bsky_authenticated"):
         return _status_panel("Please connect to Bluesky first.", "error")
-    
+
     # Extract Octopus user ID from URL
     octopus_user_id = OctopusClient.extract_user_id_from_url(octopus_url)
     if not octopus_user_id:
@@ -1291,7 +1423,7 @@ def validate_octopus(octopus_url: str, sess):
             "https://www.octopus.ac/authors/cl5smny4a000009ieqml45bhz",
             "error"
         )
-    
+
     # Verify the Octopus user exists and fetch publications
     octopus = _octopus_client()
     try:
@@ -1299,7 +1431,8 @@ def validate_octopus(octopus_url: str, sess):
         if not user_info:
             return _status_panel("Octopus user not found. Check your author URL.", "error")
     except Exception as e:
-        return _status_panel(f"Could not verify Octopus profile: {e}", "error")
+        logger.warning(f"Octopus profile verification failed: {e}")
+        return _status_panel("Could not verify Octopus profile. Please try again later.", "error")
     
     # Fetch publications
     try:
@@ -1339,6 +1472,7 @@ def validate_octopus(octopus_url: str, sess):
                 "to the atmosphere as soon as you publish on Octopus."
             ),
             Form(
+                csrf_input(sess),  # CSRF protection
                 Button("Enable auto-sync", type="submit", cls="contrast", style="width: 100%;"),
                 Input(type="hidden", name="action", value="auto_sync"),
                 Div(
@@ -1355,7 +1489,7 @@ def validate_octopus(octopus_url: str, sess):
             P(A("Back", href="/sync_panel", hx_get="/sync_panel", hx_target="#sync-panel"), style="margin-top: 1rem;"),
             id="sync-panel",
         )
-    
+
     return Article(
         Header(H3(f"Found {pub_count} publications")),
         P(f"Ready to sync to @{bsky_handle}"),
@@ -1364,6 +1498,7 @@ def validate_octopus(octopus_url: str, sess):
         H4("Step 3: Sync your publications"),
         P("Click below to sync your existing Octopus publications to the atmosphere."),
         Form(
+            csrf_input(sess),  # CSRF protection
             Button("Sync Now", type="submit", cls="contrast", style="width: 100%;"),
             Input(type="hidden", name="action", value="sync_once"),
             Div(
@@ -1391,29 +1526,34 @@ def validate_octopus(octopus_url: str, sess):
 
 
 @rt
-def setup_sync(action: str, sess, handle: str | None = None, app_password: str | None = None):
+def setup_sync(action: str, sess, csrf_token: str | None = None):
     """Handle both one-time sync and auto-sync setup."""
+    # Verify CSRF token
+    if not verify_csrf_token(sess, csrf_token):
+        return _status_panel("Invalid request. Please try again.", "error")
+
     profile = _require_login(sess)
     if not profile:
         return _status_panel("Login with ORCID first.", "error")
-    
+
     octopus_user_id = sess.get("octopus_user_id")
     if not octopus_user_id:
         return _status_panel("Session expired. Please start over.", "error")
-    
-    # Get Bluesky credentials from session (or from form for backward compatibility)
-    bsky_handle = handle or sess.get("bsky_handle")
-    bsky_password = app_password or sess.get("bsky_app_password")
-    
+
+    # Get Bluesky credentials from session only (never from form for security)
+    bsky_handle = sess.get("bsky_handle")
+    bsky_password = sess.get("bsky_app_password")
+
     if not bsky_handle or not bsky_password:
         return _status_panel("Bluesky credentials not found. Please start over.", "error")
-    
+
     # Validate Bluesky credentials
     atproto = _atproto_client()
     try:
         auth = atproto.create_session(bsky_handle, bsky_password)
     except Exception as e:
-        return _status_panel(f"Invalid Bluesky credentials: {e}", "error")
+        logger.warning(f"Bluesky auth failed for handle: {e}")
+        return _status_panel("Invalid Bluesky credentials. Please check your handle and app password.", "error")
     
     # Get publication count
     octopus = _octopus_client()
@@ -1518,27 +1658,31 @@ def setup_sync(action: str, sess, handle: str | None = None, app_password: str |
 
 
 @rt
-def manual_sync(sess):
+def manual_sync(sess, csrf_token: str | None = None):
     """Manually trigger a sync for the current user."""
+    # Verify CSRF token
+    if not verify_csrf_token(sess, csrf_token):
+        return _status_panel("Invalid request. Please try again.", "error")
+
     profile = _require_login(sess)
     if not profile:
         return _status_panel("Login with ORCID first.", "error")
-    
+
     # Get user data (efficient lookup using try/except)
     existing = _get_user(profile.orcid)
     if not existing or not existing.get("active"):
         return _status_panel("Auto-sync not enabled.", "error")
-    
+
     # Trigger background sync
     from octosphere.tasks import task_sync_user
     task_sync_user(profile.orcid)
-    
+
     # Update last_sync timestamp
     users.update({
         "orcid": profile.orcid,
         "last_sync": datetime.utcnow().isoformat() + "Z",
     })
-    
+
     # Return to sync panel (it will refresh and show updated stats)
     return Div(
         Article(
@@ -1553,13 +1697,18 @@ def manual_sync(sess):
 
 
 @rt
-def disable_sync(sess):
+def disable_sync(sess, csrf_token: str | None = None):
+    """Disable auto-sync for the current user."""
+    # Verify CSRF token
+    if not verify_csrf_token(sess, csrf_token):
+        return _status_panel("Invalid request. Please try again.", "error")
+
     profile = _require_login(sess)
     if not profile:
         return _status_panel("Login with ORCID first.", "error")
-    
+
     users.update({"orcid": profile.orcid, "active": 0})
-    
+
     return Article(
         Header(H3("Auto-sync disabled")),
         P("Your publications will no longer be synced automatically."),
@@ -1664,8 +1813,8 @@ def sync_status(orcid: str, sess):
             "to the atmosphere. We'll check for new publications every 7 days."
         ),
         Form(
-            Input(type="hidden", name="handle", value=bsky_handle),
-            Input(type="hidden", name="app_password", value=bsky_password),
+            csrf_input(sess),  # CSRF protection
+            # Note: handle and password read from session, not form (security)
             Input(type="hidden", name="action", value="auto_sync"),
             Button("Enable auto-sync", type="submit", cls="contrast", style="width: 100%;"),
             Div(
@@ -1688,12 +1837,16 @@ def sync_status(orcid: str, sess):
 
 
 @rt
-def delete_account(sess):
+def delete_account(sess, csrf_token: str | None = None):
     """Delete the user's Octosphere account.
-    
+
     This removes the user from the database and clears synced_publications,
     but does NOT delete their AT Protocol records (publications remain on the network).
     """
+    # Verify CSRF token
+    if not verify_csrf_token(sess, csrf_token):
+        return _status_panel("Invalid request. Please try again.", "error")
+
     profile = _require_login(sess)
     if not profile:
         return _status_panel("Login with ORCID first.", "error")
@@ -1731,31 +1884,36 @@ def delete_account(sess):
 
 
 @rt
-def delete_all_records(confirm_password: str, sess):
+def delete_all_records(confirm_password: str, sess, csrf_token: str | None = None):
     """Delete all Octosphere publication records and disable auto-sync.
-    
+
     This only deletes social.octosphere.publication records - not posts, likes, follows, etc.
     """
+    # Verify CSRF token
+    if not verify_csrf_token(sess, csrf_token):
+        return _status_panel("Invalid request. Please try again.", "error")
+
     profile = _require_login(sess)
     if not profile:
         return _status_panel("Login with ORCID first.", "error")
-    
+
     # Get user data
     existing = _get_user(profile.orcid)
     if not existing:
         return _status_panel("User not found.", "error")
-    
+
     bsky_handle = existing.get("bsky_handle", "")
     if not bsky_handle:
         return _status_panel("Bluesky handle not found.", "error")
-    
+
     # Authenticate with Bluesky using the provided password (not stored password)
     atproto = _atproto_client()
     try:
         auth = atproto.create_session(bsky_handle, confirm_password)
     except Exception as e:
-        return _status_panel(f"Invalid password: {e}", "error")
-    
+        logger.warning(f"Delete records auth failed: {e}")
+        return _status_panel("Invalid password. Please check and try again.", "error")
+
     # Get all Octosphere publication records (ONLY our lexicon collection)
     try:
         records = atproto.list_records(
@@ -1764,7 +1922,8 @@ def delete_all_records(confirm_password: str, sess):
             limit=100,
         )
     except Exception as e:
-        return _status_panel(f"Failed to list records: {e}", "error")
+        logger.error(f"Failed to list records for deletion: {e}")
+        return _status_panel("Failed to list records. Please try again later.", "error")
     
     # Delete each record
     deleted_count = 0
@@ -1776,8 +1935,9 @@ def delete_all_records(confirm_password: str, sess):
                 atproto.delete_record(auth, uri)
                 deleted_count += 1
             except Exception as e:
-                errors.append(f"{uri}: {e}")
-    
+                logger.warning(f"Failed to delete record {uri}: {e}")
+                errors.append(uri)  # Only store URI, not error details
+
     # Clear synced_publications entries for this user
     # We need to delete them one by one since fastlite doesn't have bulk delete
     user_synced = [s for s in synced_publications() if s.get("orcid") == profile.orcid]
@@ -1786,15 +1946,15 @@ def delete_all_records(confirm_password: str, sess):
             synced_publications.delete(s.get("id"))
         except Exception:
             pass  # Ignore errors when clearing local records
-    
+
     # Disable auto-sync
     users.update({"orcid": profile.orcid, "active": 0})
-    
+
     # Build result message
     if errors:
         error_msg = P(
-            Strong(f"⚠️ {len(errors)} errors occurred:"),
-            Ul(*[Li(e[:100]) for e in errors[:5]]),
+            Strong(f"⚠️ {len(errors)} record(s) could not be deleted."),
+            Small(" Some records may have already been removed or be inaccessible."),
             cls="octo-danger-text",
             style="font-size: 0.875rem;",
         )
