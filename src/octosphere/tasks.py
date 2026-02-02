@@ -1,6 +1,7 @@
 """Background sync tasks for Octosphere."""
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timedelta
 
@@ -8,6 +9,8 @@ from octosphere.database import decrypt_password, users, synced_publications
 from octosphere.atproto.client import AtprotoClient
 from octosphere.bridge import sync_publications
 from octosphere.octopus.client import OctopusClient
+
+logger = logging.getLogger(__name__)
 
 
 def get_sync_interval_days() -> int:
@@ -29,16 +32,16 @@ def task_sync_user(orcid: str) -> None:
     user = users[orcid]
     if not user or not user.get("active"):
         return
-    
+
     # Need octopus_user_id to fetch publications
     octopus_user_id = user.get("octopus_user_id")
     if not octopus_user_id:
-        print(f"No octopus_user_id for {orcid}, skipping sync")
+        logger.warning("No octopus_user_id for user, skipping sync")
         return
-    
+
     try:
         password = decrypt_password(user["encrypted_app_password"])
-        
+
         octopus = OctopusClient(
             api_url=os.getenv("OCTOPUS_API_URL", ""),
             web_url=os.getenv("OCTOPUS_WEB_URL", ""),
@@ -46,13 +49,13 @@ def task_sync_user(orcid: str) -> None:
         )
         atproto = AtprotoClient(default_pds_url=os.getenv("ATPROTO_PDS_URL"))
         auth = atproto.create_session(user["bsky_handle"], password)
-        
+
         # Get already synced publications to prevent duplicates
         already_synced = get_already_synced(orcid)
-        
+
         # Use octopus_user_id (internal ID) not orcid
         results = sync_publications(octopus, atproto, auth, octopus_user_id, already_synced=already_synced)
-        
+
         # Record synced publications
         for r in results:
             synced_publications.insert(
@@ -61,15 +64,15 @@ def task_sync_user(orcid: str) -> None:
                 octopus_version_id=r.version_id,
                 at_uri=r.uri,
             )
-        
+
         # Update last sync time (with Z suffix to indicate UTC)
         users.update({"orcid": orcid, "last_sync": datetime.utcnow().isoformat() + "Z"})
-        
-        print(f"Synced {len(results)} new publications for {orcid}")
-        
+
+        logger.info(f"Synced {len(results)} new publications for user")
+
     except Exception as e:
         # Log error but don't crash - this is a background task
-        print(f"Sync failed for {orcid}: {e}")
+        logger.error(f"Sync failed for user: {e}")
 
 
 def get_users_needing_sync() -> list[dict]:
