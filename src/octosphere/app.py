@@ -1145,7 +1145,7 @@ def sync_panel(sess):
                         hx_target="#sync-panel",
                         hx_swap="outerHTML",
                         hx_indicator="#sync-loading",
-                        style="display: inline;",
+                        style="display: flex; align-items: center;",
                     ),
                     A(
                         I(cls="fa-solid fa-arrow-up-right-from-square", style="margin-right: 0.5rem;"),
