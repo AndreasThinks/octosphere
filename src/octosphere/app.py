@@ -1134,6 +1134,7 @@ def sync_panel(sess):
                             "Sync Now",
                             type="submit",
                             cls="contrast",
+                            style=" margin-bottom: 0px;",
                         ),
                         Div(
                             Span("Syncing...", aria_busy="true"),
