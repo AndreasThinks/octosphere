@@ -162,6 +162,7 @@ def _orcid_button(text: str = "Sign in with ORCID", href: str = "/login", compac
         href=href,
         aria_label="Sign in with ORCID",
         style=button_style,
+        cls="octo-orcid-btn",
     )
 
 
@@ -193,12 +194,93 @@ def _nav(profile: OrcidProfile | None = None):
     )
 
 
+def _custom_styles():
+    """Return custom CSS styles that work in both light and dark modes."""
+    return Style("""
+        /* Custom theme-aware colors for Octosphere */
+        :root {
+            /* Success colors - adjusted for light mode readability */
+            --octo-success: #16a34a;
+            --octo-success-bg: rgba(22, 163, 74, 0.1);
+
+            /* Danger colors - adjusted for light mode readability */
+            --octo-danger: #dc2626;
+            --octo-danger-bg: rgba(220, 38, 38, 0.1);
+            --octo-danger-border: #dc2626;
+
+            /* ORCID brand color */
+            --octo-orcid: #437405;
+        }
+
+        /* Dark mode adjustments */
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --octo-success: #22c55e;
+                --octo-success-bg: rgba(34, 197, 94, 0.15);
+                --octo-danger: #f87171;
+                --octo-danger-bg: rgba(248, 113, 113, 0.15);
+                --octo-danger-border: #f87171;
+            }
+        }
+
+        /* Ensure good contrast for muted text in light mode */
+        @media (prefers-color-scheme: light) {
+            article {
+                background: var(--pico-card-background-color);
+            }
+        }
+
+        /* Status badge styling */
+        .octo-badge-success {
+            background: var(--octo-success-bg);
+            color: var(--octo-success);
+            padding: 0.25rem 0.75rem;
+            border-radius: 1rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+        }
+
+        /* Danger zone styling */
+        .octo-danger-zone {
+            border: 1px solid var(--octo-danger-border);
+            border-radius: var(--pico-border-radius);
+            padding: 1rem;
+        }
+
+        .octo-danger-text {
+            color: var(--octo-danger);
+        }
+
+        .octo-danger-btn {
+            background-color: var(--octo-danger);
+            border-color: var(--octo-danger);
+        }
+
+        .octo-danger-btn:hover {
+            background-color: color-mix(in srgb, var(--octo-danger) 85%, black);
+            border-color: color-mix(in srgb, var(--octo-danger) 85%, black);
+        }
+
+        /* Success text styling */
+        .octo-success-text {
+            color: var(--octo-success);
+        }
+
+        /* ORCID button hover effect */
+        .octo-orcid-btn:hover {
+            filter: brightness(1.1);
+        }
+    """)
+
+
 def _page(title: str, *content, profile: OrcidProfile | None = None):
     """Wrap content in a standard page layout."""
     return (
         Title(f"{title} - Octosphere"),
+        Meta(name="color-scheme", content="light dark"),
         Favicon('/static/octosphere.ico', '/static/octosphere.ico'),
         Link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"),
+        _custom_styles(),
         _nav(profile),
         Main(*content, cls="container"),
         Footer(
@@ -651,11 +733,13 @@ async def feed_stream():
 def feed(sess):
     """Live feed page - real-time stream of research publications."""
     profile = _profile_from_session(sess)
-    
+
     return (
         Title("Feed - Octosphere"),
+        Meta(name="color-scheme", content="light dark"),
         Favicon('/static/octosphere.ico', '/static/octosphere.ico'),
         Link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"),
+        _custom_styles(),
         Script(src="https://unpkg.com/htmx-ext-sse@2.2.3/sse.js"),
         _nav(profile),
         Main(
@@ -830,9 +914,9 @@ def sync_panel(sess):
                 # Header with status badge
                 Div(
                     Span(
-                        I(cls="fa-solid fa-circle", style="font-size: 0.5rem; margin-right: 0.5rem; color: #22c55e;"),
+                        I(cls="fa-solid fa-circle", style="font-size: 0.5rem; margin-right: 0.5rem;"),
                         "Auto-sync Active",
-                        style="background: rgba(34, 197, 94, 0.1); color: #22c55e; padding: 0.25rem 0.75rem; border-radius: 1rem; font-size: 0.875rem; font-weight: 600;",
+                        cls="octo-badge-success",
                     ),
                     style="margin-bottom: 1rem;",
                 ),
@@ -878,7 +962,8 @@ def sync_panel(sess):
                 Div(
                     Strong(f"{synced_count} of {pub_count} publications synced"),
                     " ✓" if sync_complete else "",
-                    style="margin-bottom: 0.5rem;" + (" color: #22c55e;" if sync_complete else ""),
+                    style="margin-bottom: 0.5rem;",
+                    cls="octo-success-text" if sync_complete else "",
                 ),
                 Small(
                     I(cls="fa-regular fa-clock", style="margin-right: 0.25rem;"),
@@ -945,9 +1030,9 @@ def sync_panel(sess):
                 ),
                 Article(
                     H4(
-                        I(cls="fa-solid fa-triangle-exclamation", style="margin-right: 0.5rem; color: #dc2626;"),
+                        I(cls="fa-solid fa-triangle-exclamation octo-danger-text", style="margin-right: 0.5rem;"),
                         "Danger Zone",
-                        style="color: #dc2626;",
+                        cls="octo-danger-text",
                     ),
                     P(
                         "Delete all your Octosphere publication records from the AT Protocol network "
@@ -977,7 +1062,7 @@ def sync_panel(sess):
                             I(cls="fa-solid fa-trash", style="margin-right: 0.5rem;"),
                             "Delete All Records & Disconnect",
                             type="submit",
-                            style="background-color: #dc2626; border-color: #dc2626;",
+                            cls="octo-danger-btn",
                         ),
                         Div(
                             Span("Deleting records...", aria_busy="true"),
@@ -991,12 +1076,12 @@ def sync_panel(sess):
                         hx_indicator="#delete-loading",
                         hx_confirm="Are you sure? This will permanently delete all your Octosphere publication records from the AT Protocol network.",
                     ),
-                    Hr(style="margin: 1.5rem 0; border-color: #dc2626;"),
+                    Hr(cls="octo-danger-text", style="margin: 1.5rem 0; border-color: var(--octo-danger-border);"),
                     # Delete Account section
                     H4(
-                        I(cls="fa-solid fa-user-slash", style="margin-right: 0.5rem; color: #dc2626;"),
+                        I(cls="fa-solid fa-user-slash octo-danger-text", style="margin-right: 0.5rem;"),
                         "Delete Account",
-                        style="color: #dc2626;",
+                        cls="octo-danger-text",
                     ),
                     P(
                         "Remove your Octosphere account entirely. ",
@@ -1010,7 +1095,7 @@ def sync_panel(sess):
                             I(cls="fa-solid fa-user-minus", style="margin-right: 0.5rem;"),
                             "Delete My Account",
                             type="submit",
-                            style="background-color: #dc2626; border-color: #dc2626;",
+                            cls="octo-danger-btn",
                         ),
                         Div(
                             Span("Deleting account...", aria_busy="true"),
@@ -1022,7 +1107,8 @@ def sync_panel(sess):
                         hx_indicator="#delete-account-loading",
                         hx_confirm="Are you sure you want to delete your Octosphere account? This will NOT delete your publication records from the AT Protocol network - use 'Delete All Records' first if you want to remove those.",
                     ),
-                    style="border: 1px solid #dc2626; border-radius: var(--pico-border-radius); margin-top: 1rem;",
+                    cls="octo-danger-zone",
+                    style="margin-top: 1rem;",
                 ),
                 style="margin-top: 1.5rem;",
             ),
@@ -1709,7 +1795,8 @@ def delete_all_records(confirm_password: str, sess):
         error_msg = P(
             Strong(f"⚠️ {len(errors)} errors occurred:"),
             Ul(*[Li(e[:100]) for e in errors[:5]]),
-            style="color: #dc2626; font-size: 0.875rem;",
+            cls="octo-danger-text",
+            style="font-size: 0.875rem;",
         )
     else:
         error_msg = None
