@@ -385,6 +385,35 @@ def _custom_styles():
         .octo-orcid-btn:hover {
             filter: brightness(1.1);
         }
+
+        /* Feed card button container - always single row */
+        .octo-feed-buttons {
+            display: flex;
+            gap: 0.375rem;
+            flex-wrap: nowrap;
+        }
+
+        /* Feed card buttons - compact styling */
+        .octo-feed-buttons [role="button"] {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            white-space: nowrap;
+            flex-shrink: 1;
+            min-width: 0;
+        }
+
+        /* Hide button text on very small screens, show only icons */
+        @media (max-width: 400px) {
+            .octo-feed-buttons .octo-btn-text {
+                display: none;
+            }
+            .octo-feed-buttons [role="button"] {
+                padding: 0.25rem 0.5rem;
+            }
+            .octo-feed-buttons i {
+                margin-right: 0 !important;
+            }
+        }
     """)
 
 
@@ -683,32 +712,29 @@ def PublicationCard(record: dict, did: str, handle: str | None = None, timestamp
             Div(
                 A(
                     I(cls="fa-solid fa-eye", style="margin-right: 0.25rem;"),
-                    "View on pdsls",
+                    Span("View on pdsls", cls="octo-btn-text"),
                     href=pdsls_url,
                     target="_blank",
                     role="button",
                     cls="outline secondary",
-                    style="font-size: 0.875rem; padding: 0.25rem 0.75rem;",
                 ) if pdsls_url else None,
                 A(
                     I(cls="fa-solid fa-book-open", style="margin-right: 0.25rem;"),
-                    "View on Octopus",
+                    Span("View on Octopus", cls="octo-btn-text"),
                     href=canonical_url,
                     target="_blank",
                     role="button",
                     cls="outline",
-                    style="font-size: 0.875rem; padding: 0.25rem 0.75rem;",
                 ) if canonical_url else None,
                 A(
                     I(cls="fa-solid fa-comments", style="margin-right: 0.25rem;"),
-                    "Post a Peer Review",
+                    Span("Peer Review", cls="octo-btn-text"),
                     href=peer_review_url,
                     target="_blank",
                     role="button",
                     cls="contrast",
-                    style="font-size: 0.875rem; padding: 0.25rem 0.75rem;",
                 ) if peer_review_url else None,
-                style="display: flex; gap: 0.5rem; flex-wrap: wrap;",
+                cls="octo-feed-buttons",
             ),
         ),
         style="margin-bottom: 1rem;",
