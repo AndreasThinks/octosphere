@@ -314,17 +314,25 @@ def _custom_styles():
     return Style("""
         /* Custom theme-aware colors for Octosphere */
         :root {
-            /* Success colors - adjusted for light mode readability */
+            /* Success colors */
             --octo-success: #16a34a;
             --octo-success-bg: rgba(22, 163, 74, 0.1);
 
-            /* Danger colors - adjusted for light mode readability */
+            /* Danger colors */
             --octo-danger: #dc2626;
-            --octo-danger-bg: rgba(220, 38, 38, 0.1);
+            --octo-danger-bg: rgba(220, 38, 38, 0.08);
             --octo-danger-border: #dc2626;
 
             /* ORCID brand color */
             --octo-orcid: #437405;
+
+            /* Card and panel backgrounds for light mode */
+            --octo-card-bg: #ffffff;
+            --octo-card-border: #e5e7eb;
+            --octo-panel-bg: #f9fafb;
+            --octo-muted-text: #6b7280;
+            --octo-body-bg: #ffffff;
+            --octo-surface-bg: #f3f4f6;
         }
 
         /* Dark mode adjustments */
@@ -333,15 +341,97 @@ def _custom_styles():
                 --octo-success: #22c55e;
                 --octo-success-bg: rgba(34, 197, 94, 0.15);
                 --octo-danger: #f87171;
-                --octo-danger-bg: rgba(248, 113, 113, 0.15);
+                --octo-danger-bg: rgba(248, 113, 113, 0.12);
                 --octo-danger-border: #f87171;
+                --octo-card-bg: #1f2937;
+                --octo-card-border: #374151;
+                --octo-panel-bg: #111827;
+                --octo-muted-text: #9ca3af;
+                --octo-body-bg: #111827;
+                --octo-surface-bg: #1f2937;
             }
         }
 
-        /* Ensure good contrast for muted text in light mode */
+        /* Light mode specific fixes */
         @media (prefers-color-scheme: light) {
+            /* Ensure articles have white backgrounds with subtle borders */
             article {
-                background: var(--pico-card-background-color);
+                background: var(--octo-card-bg) !important;
+                border: 1px solid var(--octo-card-border);
+                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            }
+
+            /* Fix article headers - remove dark backgrounds */
+            article > header {
+                background: transparent !important;
+                border-bottom: 1px solid var(--octo-card-border);
+            }
+
+            /* Fix article footers */
+            article > footer {
+                background: transparent !important;
+                border-top: 1px solid var(--octo-card-border);
+            }
+
+            /* Ensure proper text color in articles */
+            article, article p, article h1, article h2, article h3, article h4, article h5, article h6 {
+                color: #1f2937;
+            }
+
+            /* Muted text should be readable but subtle */
+            article small, article .muted {
+                color: var(--octo-muted-text);
+            }
+
+            /* Fix code elements in light mode */
+            code, pre {
+                background: #f3f4f6;
+                color: #1f2937;
+            }
+
+            /* Fix details/summary elements */
+            details {
+                background: transparent;
+            }
+
+            details > summary {
+                color: var(--octo-muted-text);
+            }
+
+            /* Fix fieldset backgrounds */
+            fieldset {
+                background: transparent;
+                border-color: var(--octo-card-border);
+            }
+
+            /* Fix input backgrounds */
+            input, textarea, select {
+                background: var(--octo-card-bg);
+                border-color: var(--octo-card-border);
+                color: #1f2937;
+            }
+
+            input:focus, textarea:focus, select:focus {
+                border-color: var(--pico-primary);
+            }
+
+            /* Fix table styling */
+            table {
+                border-color: var(--octo-card-border);
+            }
+
+            th, td {
+                border-color: var(--octo-card-border);
+            }
+
+            thead {
+                background: var(--octo-panel-bg);
+            }
+
+            /* Fix the experimental banner */
+            .octo-banner {
+                background: var(--octo-panel-bg) !important;
+                border: 1px solid var(--octo-card-border);
             }
         }
 
@@ -360,6 +450,7 @@ def _custom_styles():
             border: 1px solid var(--octo-danger-border);
             border-radius: var(--pico-border-radius);
             padding: 1rem;
+            background: var(--octo-danger-bg);
         }
 
         .octo-danger-text {
@@ -367,13 +458,14 @@ def _custom_styles():
         }
 
         .octo-danger-btn {
-            background-color: var(--octo-danger);
-            border-color: var(--octo-danger);
+            background-color: var(--octo-danger) !important;
+            border-color: var(--octo-danger) !important;
+            color: white !important;
         }
 
         .octo-danger-btn:hover {
-            background-color: color-mix(in srgb, var(--octo-danger) 85%, black);
-            border-color: color-mix(in srgb, var(--octo-danger) 85%, black);
+            background-color: color-mix(in srgb, var(--octo-danger) 85%, black) !important;
+            border-color: color-mix(in srgb, var(--octo-danger) 85%, black) !important;
         }
 
         /* Success text styling */
@@ -412,6 +504,50 @@ def _custom_styles():
             }
             .octo-feed-buttons i {
                 margin-right: 0 !important;
+            }
+        }
+
+        /* Status panel styling - softer colors for light mode */
+        .octo-status-panel {
+            border-radius: var(--pico-border-radius);
+            padding: 1rem;
+        }
+
+        .octo-status-info {
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            color: #1e40af;
+        }
+
+        .octo-status-success {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            color: #166534;
+        }
+
+        .octo-status-error {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #991b1b;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .octo-status-info {
+                background: rgba(59, 130, 246, 0.15);
+                border-color: rgba(59, 130, 246, 0.3);
+                color: #93c5fd;
+            }
+
+            .octo-status-success {
+                background: rgba(34, 197, 94, 0.15);
+                border-color: rgba(34, 197, 94, 0.3);
+                color: #86efac;
+            }
+
+            .octo-status-error {
+                background: rgba(239, 68, 68, 0.15);
+                border-color: rgba(239, 68, 68, 0.3);
+                color: #fca5a5;
             }
         }
     """)
@@ -548,15 +684,16 @@ def _strip_html_tags(text: str) -> str:
 
 
 def _status_panel(message: str, status: str = "info"):
-    cls = {
-        "info": "secondary",
-        "success": "",
-        "error": "contrast",
-    }.get(status, "secondary")
-    return Article(
-        Header(H3("Status")),
-        P(message),
-        cls=cls,
+    """Return a styled status panel with proper light/dark mode support."""
+    status_cls = {
+        "info": "octo-status-info",
+        "success": "octo-status-success",
+        "error": "octo-status-error",
+    }.get(status, "octo-status-info")
+    return Div(
+        H3("Status", style="margin-top: 0; margin-bottom: 0.5rem;"),
+        P(message, style="margin-bottom: 0;"),
+        cls=f"octo-status-panel {status_cls}",
     )
 
 
@@ -581,7 +718,8 @@ def index(sess):
         # Experimental banner
         Div(
             Strong("Experimental"), " — Exploring what distributed science on AT Protocol could look like.",
-            style="background: var(--pico-secondary-background); padding: 0.5rem 1rem; border-radius: var(--pico-border-radius); text-align: center; margin-bottom: 1rem;",
+            cls="octo-banner",
+            style="padding: 0.5rem 1rem; border-radius: var(--pico-border-radius); text-align: center; margin-bottom: 1rem;",
         ),
         # Hero section
         Header(
@@ -887,7 +1025,8 @@ def feed(sess):
             # Experimental banner
             Div(
                 Strong("Experimental"), " — This feed shows publications synced as part of an AT Protocol experiment.",
-                style="background: var(--pico-secondary-background); padding: 0.5rem 1rem; border-radius: var(--pico-border-radius); text-align: center; margin-bottom: 1rem;",
+                cls="octo-banner",
+                style="padding: 0.5rem 1rem; border-radius: var(--pico-border-radius); text-align: center; margin-bottom: 1rem;",
             ),
             Header(
                 H1("Research Feed"),
