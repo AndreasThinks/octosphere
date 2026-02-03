@@ -717,7 +717,10 @@ def index(sess):
         "Home",
         # Experimental banner
         Div(
-            Strong("Experimental"), " — Exploring what distributed science on AT Protocol could look like.",
+            Strong("Experimental"), " — ",
+            A("My experiment on what the future of decentralised science might look like.", 
+              href="https://andreasthinks.me/posts/octosphere/octosphere.html",
+              target="_blank"),
             cls="octo-banner",
             style="padding: 0.5rem 1rem; border-radius: var(--pico-border-radius); text-align: center; margin-bottom: 1rem;",
         ),
@@ -1024,7 +1027,10 @@ def feed(sess):
         Main(
             # Experimental banner
             Div(
-                Strong("Experimental"), " — This feed shows publications synced as part of an AT Protocol experiment.",
+                Strong("Experimental"), " — ",
+                A("My experiment on what the future of decentralised science might look like.", 
+                  href="https://andreasthinks.me/posts/octosphere/octosphere.html",
+                  target="_blank"),
                 cls="octo-banner",
                 style="padding: 0.5rem 1rem; border-radius: var(--pico-border-radius); text-align: center; margin-bottom: 1rem;",
             ),
