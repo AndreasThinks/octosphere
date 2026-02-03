@@ -1509,7 +1509,16 @@ def validate_bluesky(handle: str, app_password: str, sess, csrf_token: str | Non
     try:
         auth = atproto.create_session(handle, app_password)
     except Exception as e:
+        error_str = str(e)
         logger.warning(f"Bluesky auth failed: {e}")
+        # Check for 2FA error - user entered main password instead of app password
+        if "AuthFactorTokenRequired" in error_str:
+            return _status_panel(
+                "You entered your main Bluesky password instead of an app password. "
+                "App passwords are separate credentials you generate for third-party apps. "
+                "Please generate one at bsky.app/settings/app-passwords and try again.",
+                "error"
+            )
         return _status_panel("Invalid Bluesky credentials. Please check your handle and app password.", "error")
     
     # Store Bluesky connection in session
