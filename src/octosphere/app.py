@@ -1425,9 +1425,20 @@ def sync_panel(sess):
             Form(
                 csrf_input(sess),  # CSRF protection
                 Fieldset(
-                    Label("Bluesky handle", Input(id="handle", placeholder="user.bsky.social", required=True)),
-                    Label("App password", Input(id="app_password", type="password", required=True)),
-                    Small("Create an app password at bsky.app Settings → App Passwords"),
+                    Label(
+                        "Bluesky handle",
+                        Input(id="handle", placeholder="user.bsky.social", required=True),
+                        Small("Your full handle including domain, e.g. alice.bsky.social or yourname.com", style="font-weight: normal;"),
+                    ),
+                    Label(
+                        "App password",
+                        Input(id="app_password", type="password", required=True),
+                        Small(
+                            "You need to generate an app password at ",
+                            A("bsky.app/settings/app-passwords", href="https://bsky.app/settings/app-passwords", target="_blank"),
+                            style="font-weight: normal;",
+                        ),
+                    ),
                 ),
                 Button("Sign in with Bluesky", type="submit", cls="contrast"),
                 Div(
@@ -1558,9 +1569,20 @@ def disconnect_bluesky(sess):
         Form(
             csrf_input(sess),  # CSRF protection
             Fieldset(
-                Label("Bluesky handle", Input(id="handle", placeholder="user.bsky.social", required=True)),
-                Label("App password", Input(id="app_password", type="password", required=True)),
-                Small("Create an app password at bsky.app Settings → App Passwords"),
+                Label(
+                    "Bluesky handle",
+                    Input(id="handle", placeholder="user.bsky.social", required=True),
+                    Small("Your full handle including domain, e.g. alice.bsky.social or yourname.com", style="font-weight: normal;"),
+                ),
+                Label(
+                    "App password",
+                    Input(id="app_password", type="password", required=True),
+                    Small(
+                        "You need to generate an app password at ",
+                        A("bsky.app/settings/app-passwords", href="https://bsky.app/settings/app-passwords", target="_blank"),
+                        style="font-weight: normal;",
+                    ),
+                ),
             ),
             Button("Sign in with Bluesky", type="submit", cls="contrast"),
             Div(
